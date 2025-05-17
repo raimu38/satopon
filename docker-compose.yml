@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  satopon_backend:
+    build: ./backend/
+    container_name: satopon_backend
+    working_dir: /app
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+
+  satopon_frontend:
+    build: ./frontend/
+    container_name: satopon_frontend
+    working_dir: /app
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules    # node_modulesはホストと分離
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true # ホットリロード有効化のため
+    tty: true
+    command: ["npm", "run", "dev", "--", "-p", "3002"]
