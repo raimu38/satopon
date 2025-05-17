@@ -60,6 +60,18 @@ body {
     opacity: 1;
   }
 }
+
+
+@layer utilities {
+  .animate-slide-in-right {
+    /* 初期状態で完全に透明に */
+    opacity: 0;
+    /* アニメーション再生後は最終状態を保持 */
+    animation: slide-in-right 0.3s ease-out forwards;
+    animation-fill-mode: both;
+    will-change: transform, opacity;
+  }
+}
 @keyframes slide-in-left {
   from {
     transform: translateX(-100%);

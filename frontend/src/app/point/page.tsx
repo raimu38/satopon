@@ -166,7 +166,7 @@ const submitInput = () => {
       if (x.id === settleTarget) {
         return { ...x, points: x.points - settleAmount }
       }
-      if (x.name === 'B') {
+      if (x.id === me.id) {
         return { ...x, points: x.points + settleAmount }
       }
       return x
@@ -218,7 +218,7 @@ const submitInput = () => {
           onClick={back}
           className="absolute top-4 left-4 px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
         >
-          戻る
+         Back 
         </button>
       )}
 
@@ -294,7 +294,7 @@ const submitInput = () => {
       onClick={() => setIsAddModalOpen(false)}
       className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500"
     >
-     Cancel  
+     ×  
     </button>
     <button
       onClick={() => {
@@ -304,7 +304,7 @@ const submitInput = () => {
           return
         }
         if (friends.some(f => f.name === name)) {
-          setNameError('This name is already in use.')
+          setNameError('This name is already in use')
           return
         }
         const id = Date.now()
@@ -378,7 +378,7 @@ const submitInput = () => {
         transition
       "
     >
-      {friends.filter(f => f.registered).length}
+      Ready: {friends.filter(f => f.registered).length}
     </button>
 
     {/* 詳細モーダル */}
@@ -522,7 +522,7 @@ const submitInput = () => {
     type="text"
     value={chatInput}
     onChange={e => setChatInput(e.target.value)}
-    placeholder="Message.."
+    placeholder=".."
     className="
       flex-1 px-4 py-2
       bg-indigo-900 bg-opacity-30
@@ -536,6 +536,8 @@ const submitInput = () => {
 <button
   onClick={() => {
     const txt = chatInput.trim()
+    const audio = new Audio('/sounds/message_send_2.mp3');
+    audio.play()
     if (!txt) return
     const now = new Date()
     const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -567,7 +569,7 @@ className="
   "
 >
   {chatMessages.length === 0 ? (
-    <p className="text-indigo-200 text-sm text-center">思いの丈をぶつけましょう</p>
+    <p className="text-indigo-200 text-sm text-center">Therefore,</p>
   ) : (
 [...chatMessages].reverse().map(m => (
   <div
@@ -653,7 +655,7 @@ className="
           transition
         "
       >
-         承認を要求
+        Request Approval 
       </button>
 
       {/* エラー文言 */}
@@ -678,7 +680,7 @@ className="
       rounded-2xl p-6
       mx-auto space-y-4
     ">
-      <ul className="space-y-2 max-h-60 overflow-y-auto">
+      <ul className="space-y-2 max-h-60 overflow-y-auto no-scrollbar ">
         {Object.entries(deltas).map(([id, d]) => {
           const f = friends.find(x => x.id === +id)!
           return (
@@ -705,7 +707,7 @@ className="
           transition
         "
       >
-        全員承認して確定
+      Confirmed
       </button>
     </div>
   </div>
@@ -738,7 +740,7 @@ className="
           transition
         "
       >
-        戻る 
+        Back
       </button>
 
       <h3 className="text-xl font-bold text-white text-center">
@@ -748,7 +750,7 @@ className="
       {settleTarget == null ? (
         eligible.length === 0 ? (
           <p className="text-indigo-200 text-center">
-            あなたは精算の必要はありません。
+           no sato required.
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-4">
@@ -782,10 +784,10 @@ className="
         <>
           <div className="flex justify-between items-center">
             <span className="text-white">
-              相手: {friends.find(f => f.id === settleTarget)!.name}
+              To: {friends.find(f => f.id === settleTarget)!.name}
             </span>
             <span className="text-indigo-200">
-              上限: {maxTransfer} sato 
+              max: {maxTransfer} sato 
             </span>
           </div>
           <input
@@ -799,7 +801,7 @@ className="
               let v = Number(e.target.value)
               setSettleAmount(v)
             }}
-            placeholder={`1〜${maxTransfer} の間で入力`}
+            placeholder={`1 〜 ${maxTransfer}`}
             className="
               w-full px-3 py-2
               bg-indigo-900 bg-opacity-30
@@ -829,7 +831,7 @@ className="
             onClick={() => setSettleTarget(null)}
             className="w-full text-center text-indigo-300 hover:text-indigo-100 transition"
           >
-            ← 相手を選び直す
+            ← Other
           </button>
         </>
       )}
@@ -880,9 +882,9 @@ className="
 
 {isStopConfirmOpen && (
   <div className="fixed inset-0 z-50 flex items-center justify-center  backdrop-blur-sm">
-  <div className="w-full max-w-sm bg-gray-800  rounded-2xl p-6 shadow-lg text-center space-y-8">
+  <div className="w-full max-w-sm   p-6 text-center space-y-8">
       <h3 className="text-white text-lg font-bold">
-       おわりますか？
+      Finish?
       </h3>
       <div className="flex justify-center space-x-6">
         <button
@@ -892,13 +894,13 @@ className="
        }}
           className="px-4 py-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition"
         >
-         おわろうと思う
+         おわろう
         </button>
         <button
           onClick={() => setIsStopConfirmOpen(false)}
           className="px-4 py-2 bg-gray-600 text-white rounded-full hover:bg-gray-500 transition"
         >
-         おわりたくない
+         おわらん
         </button>
       </div>
     </div>
@@ -907,60 +909,65 @@ className="
 
 {/* ── 履歴モーダル ── */}
 {isHistoryOpen && (
-  <div className="fixed inset-0 flex items-center justify-center  z-50">
+ <div className="
+    fixed inset-0 flex items-center justify-center z-50 
+  ">
     <div className="
       w-full  mx-auto
       backdrop-blur-sm
       flex flex-col
       h-[100vh]
     ">
-      {/* ヘッダー */}
-      <h2 className="text-xl font-bold text-white text-center p-4 border-b border-indigo-800">
-      ::: 
-      </h2>
+{/* ヘッダー */}
+<h2
+  onClick={() => setIsHistoryOpen(false)}
+  className="text-xl font-bold text-white text-center p-4 border-b border-indigo-800 cursor-pointer"
+>
+  :::
+</h2>
 
 
       {/* 履歴リスト部分 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {history.length === 0 ? (
-          <p className="text-indigo-200 text-center">No logs, no memory</p>
-        ) : (
-          history.map(h => (
-            <div key={h.id} className="
-              bg-gray-900 bg-opacity-30 
-              rounded-2xl p-4 backdrop-blur-sm space-y-2
-            ">
-              <div className="flex justify-between text-sm text-indigo-200">
-                <span>開始: {h.start.toLocaleTimeString()}</span>
-                <span>時間: {h.duration}s</span>
+      {/* 履歴リスト部分 */}
+<div className="flex-1 flex flex-col no-scrollbar items-center overflow-y-auto p-4 space-y-4">
+  {history.length === 0 ? (
+    <p className="text-indigo-200 text-center">No logs, no memory</p>
+  ) : (
+    history.map((h, idx) => (
+      <div
+        key={h.id}
+        className={`
+          w-full max-w-lg
+          bg-gray-900 bg-opacity-30 
+          rounded-2xl p-4 backdrop-blur-sm space-y-2
+          animate-slide-in-right
+        `}
+        style={{ animationDelay: `${idx * 100}ms` }}
+      >
+        <div className="flex justify-between text-sm text-indigo-200">
+          <span>{h.start.toLocaleTimeString()}</span>
+          <span>Time: {h.duration}s</span>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          {Object.entries(h.deltas).map(([id, d]) => {
+            const f = friends.find(x => x.id === +id)!
+            return (
+              <div key={id} className="flex flex-col items-center">
+                <span className="text-sm text-white overflow-hidden whitespace-nowrap max-w-[6rem]">
+                  {f.name}
+                </span>
+                <span className={d > 0 ? 'text-blue-300' : d < 0 ? 'text-red-300' : 'text-indigo-200'}>
+                  {d >= 0 ? '+' : ''}{d}
+                </span>
               </div>
-              <div className="grid grid-cols-4 gap-2">
-                {Object.entries(h.deltas).map(([id, d]) => {
-                  const f = friends.find(x => x.id === +id)!
-                  return (
-                    <div key={id} className="flex flex-col items-center">
-                      <span className="text-sm text-white">{f.name}</span>
-                      <span className={d > 0 ? 'text-blue-300' : d < 0 ? 'text-red-300' : 'text-indigo-200'}>
-                        {d >= 0 ? '+' : ''}{d}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ))
-        )}
+            )
+          })}
+        </div>
       </div>
+    ))
+  )}
+</div>
 
-      {/* 閉じるボタン */}
-      <button
-        onClick={() => setIsHistoryOpen(false)}
-        className="
-          text-white 
-          text-4xl
-          mb-3
-        "
-      >×</button>
     </div>
   </div>
 )}
