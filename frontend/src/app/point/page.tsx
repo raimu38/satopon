@@ -46,7 +46,7 @@ const initialFriends: Friend[] = [
   const [settleAmount, setSettleAmount] = useState<number>(0)
   const [settleConfirmed, setSettleConfirmed] = useState(false)
   const [detailTarget, setDetailTarget] = useState<number | null>(null)
-  const timerRef = useRef<NodeJS.Timer>()
+  const timerRef = useRef<number | null>(null)
 const [isAddModalOpen, setIsAddModalOpen] = useState(false)
 const [nameError, setNameError] = useState('')
 const [newFriendName, setNewFriendName] = useState('')
@@ -55,9 +55,6 @@ const [isHistoryOpen, setIsHistoryOpen] = useState(false)
 const [isStopConfirmOpen, setIsStopConfirmOpen] = useState(false)
 
 
- const [stamps, setStamps] = useState<
-    { id: number; icon: string; x: number; y: number }[]
-  >([])
   // 自分 (B)
   const me = friends.find(f => f.id === 2)!
 const [chatInput, setChatInput] = useState<string>('')  
@@ -79,7 +76,7 @@ useEffect(() => {
     if (stage === 'timer') {
       setSeconds(0)
       setStartTime(new Date())
-      timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000)
+      timerRef.current = window.setInterval(() => setSeconds(s => s + 1), 1000)
     } else {
       clearInterval(timerRef.current!)
     }
@@ -204,11 +201,6 @@ const submitInput = () => {
     ? Math.min(Math.abs(me.points), targetFriend.points)
     : 0
 
-  // 配色ユーティリティ
-  const colorText = (d: number) =>
-    d > 0 ? 'text-blue-600' : d < 0 ? 'text-red-600' : 'text-gray-500'
-  const colorBg = (d: number) =>
-    d > 0 ? 'bg-blue-200' : d < 0 ? 'bg-red-200' : 'bg-gray-200'
 
   return (
     <div className="">
@@ -798,7 +790,7 @@ className="
             step={1}
             value={settleAmount > 0 ? settleAmount : ''}
             onChange={e => {
-              let v = Number(e.target.value)
+              const v = Number(e.target.value)
               setSettleAmount(v)
             }}
             placeholder={`1 〜 ${maxTransfer}`}
