@@ -1,36 +1,32 @@
-'use client'
-import { useEffect, useState } from 'react'
+"use client";
 
-export default function Home() {
-  const [messages, setMessages] = useState<string[]>([])
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-  useEffect(() => {
-    const socket = new WebSocket("ws://100.64.1.15:8000/ws")
+const LoginPage = () => {
+  const router = useRouter();
 
-    socket.onmessage = (event) => {
-      setMessages(prev => [...prev, event.data])
+  const handleClick = async () => {
+    const { data } = await supabase.auth.getUser();
+    if (data?.user) {
+      // すでにログイン済み
+      router.push("/point");
+    } else {
+      // 未ログイン・アカウント未作成
+      router.push("/auth");
     }
-
-    socket.onopen = () => {
-      console.log("✅ WebSocket connected")
-      socket.send("Hello from client")
-    }
-
-    socket.onclose = () => {
-      console.log("❌ WebSocket closed")
-    }
-
-    return () => socket.close()
-  }, [])
+  };
 
   return (
-    <main>
-      <h1>通知一覧</h1>
-      <ul>
-        {messages.map((msg, i) => (
-          <li key={i}>{msg}</li>
-        ))}
-      </ul>
-    </main>
-  )
-}
+    <div className="flex w-full h-screen justify-center items-center rotating-gradient">
+      <button
+        className="hover:bg-white/20 px-4 py-2 font-semibold rounded-full"
+        onClick={handleClick}
+      >
+        Satopon
+      </button>
+    </div>
+  );
+};
+
+export default LoginPage;

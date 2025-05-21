@@ -83,3 +83,31 @@ body {
   }
 }
 
+.rotating-gradient {
+  position: relative;
+  overflow: hidden;
+}
+.rotating-gradient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(0deg, #312e81 0%, #111827 100%);
+  animation: gradient-rotate-real 32s linear infinite;
+  will-change: transform;
+}
+@keyframes gradient-rotate-real {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+/* 子要素を前面に */
+.rotating-gradient > * {
+  position: relative;
+  z-index: 1;
+}
+
+
