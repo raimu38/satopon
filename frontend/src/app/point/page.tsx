@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 
-type Friend = {
+      type Friend = {
   id: number
   name: string
   icon: string
