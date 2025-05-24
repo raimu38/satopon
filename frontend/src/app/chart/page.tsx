@@ -31,7 +31,6 @@ function Timeline() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playSpeed, setPlaySpeed] = useState(10); // 10fps相当
 const [isArrowLongPress, setIsArrowLongPress] = useState(false);
-const longPressTimerRef = useRef(null);
   // サマリーバー関連
   const [dragBarMode, setDragBarMode] = useState(null); // 'move', 'left', 'right', null
   const [barDragStartX, setBarDragStartX] = useState(null);
@@ -126,58 +125,110 @@ const [arrowScrollDirection, setArrowScrollDirection] = useState(null); // 'left
 const currentIndexRef = useRef(currentIndex);
 useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
 
+const ensureCurrentIndexVisible = (index) => {
+  if (index < viewStart) {
+    setViewStart(index);
+  } else if (index >= viewStart + visibleFrames) {
+    setViewStart(Math.min(FRAME_COUNT - visibleFrames, index - visibleFrames + 1));
+  }
+};
+
+const visibleFramesRef = useRef(visibleFrames);
+useEffect(() => { visibleFramesRef.current = visibleFrames }, [visibleFrames]);
+
+const setCurrentIndexAndViewStart = (targetIndex) => {
+  setCurrentIndex(() => {
+    const vf = visibleFramesRef.current;
+    let newIndex = Math.max(0, Math.min(FRAME_COUNT - 1, targetIndex));
+    setViewStart(vs => {
+      if (newIndex < vs) return newIndex;
+      if (newIndex >= vs + vf) return Math.min(FRAME_COUNT - vf, newIndex - vf + 1);
+      return vs;
+    });
+    return newIndex;
+  });
+};
+const stepMove = (dir) => {
+  setCurrentIndex(idx => {
+    let nextIdx = idx + (dir === 'right' ? 1 : -1);
+    nextIdx = Math.max(0, Math.min(FRAME_COUNT - 1, nextIdx));
+    setViewStart(vs => {
+      const vis = visibleFramesRef.current;
+      if (nextIdx < vs) {
+        return nextIdx;
+      } else if (nextIdx >= vs + vis) {
+        return Math.min(FRAME_COUNT - vis, nextIdx - vis + 1);
+      } else {
+        return vs;
+      }
+    });
+    return nextIdx;
+  });
+};
+
+// 追加：グローバルタイマーref
+const longPressTimerRef = useRef(null);
+const repeatTimerRef = useRef(null);
+const arrowDirectionRef = useRef(null); // 'left' | 'right' | null
+
 useEffect(() => {
-  let longPressTimer = null;
-  let scrollInterval = null;
-  const onKeyDown = (e) => {
-    if (isPlaying || e.repeat) return;
+  const handleKeyDown = (e) => {
+    if (isPlaying) return;
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+
+    const dir = e.key === 'ArrowRight' ? 'right' : 'left';
+
+    // 同じ方向押し直しや、両方同時押しの時も「1本しか動かない」ようにする
+    if (arrowDirectionRef.current === dir) return;
+
+    // どちらか方向変わったら必ずタイマー停止
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (repeatTimerRef.current) {
+      clearInterval(repeatTimerRef.current);
+      repeatTimerRef.current = null;
+    }
+
+    arrowDirectionRef.current = dir;
+    stepMove(dir);
+    longPressTimerRef.current = setTimeout(() => {
+      repeatTimerRef.current = setInterval(() => stepMove(dir), 1000 / playSpeed);
+    }, LONG_PRESS_DELAY);
+  };
+
+  const handleKeyUp = (e) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     const dir = e.key === 'ArrowRight' ? 'right' : 'left';
-    setArrowScrollDirection(dir);
-    setIsArrowLongPress(false);
-    // 1回進める
-    currentIndexRef.current =
-      dir === 'right'
-        ? Math.min(FRAME_COUNT - 1, currentIndexRef.current + 1)
-        : Math.max(0, currentIndexRef.current - 1);
-setCurrentIndex(idx => {
-    const next = dir === 'right'
-      ? Math.min(FRAME_COUNT - 1, idx + 1)
-      : Math.max(0, idx - 1);
-    ensureCurrentIndexVisible(next); // ★追加
-    return next;
-  });
-    longPressTimer = setTimeout(() => {
-      setIsArrowLongPress(true);
-scrollInterval = setInterval(() => {
-  setCurrentIndex(idx => {
-    const next = dir === 'right'
-      ? Math.min(FRAME_COUNT - 1, idx + 1)
-      : Math.max(0, idx - 1);
-    ensureCurrentIndexVisible(next); // ★追加
-    return next;
-  });
-}, 1000 / playSpeed);
-      arrowScrollIntervalRef.current = scrollInterval;
-    }, LONG_PRESS_DELAY);
-    longPressTimerRef.current = longPressTimer;
+
+    // どちらかのキーが離されたとき、まだもう一方が押されているかは問わず「必ず止める」
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (repeatTimerRef.current) {
+      clearInterval(repeatTimerRef.current);
+      repeatTimerRef.current = null;
+    }
+    // 状態リセット
+    if (arrowDirectionRef.current === dir) {
+      arrowDirectionRef.current = null;
+    }
   };
-  const onKeyUp = (e) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-    clearTimeout(longPressTimerRef.current);
-    clearInterval(arrowScrollIntervalRef.current);
-    setArrowScrollDirection(null);
-    setIsArrowLongPress(false);
-  };
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
+
+  window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('keyup', handleKeyUp);
   return () => {
-    window.removeEventListener('keydown', onKeyDown);
-    window.removeEventListener('keyup', onKeyUp);
-    clearTimeout(longPressTimer);
-    clearInterval(scrollInterval);
+    window.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('keyup', handleKeyUp);
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    if (repeatTimerRef.current) clearInterval(repeatTimerRef.current);
+    longPressTimerRef.current = null;
+    repeatTimerRef.current = null;
+    arrowDirectionRef.current = null;
   };
-}, [isPlaying, playSpeed]);
+}, [playSpeed, isPlaying, visibleFrames, stepMove]);
 // サマリーバー描画（角丸・グラデ・ハンドルつき）
 useEffect(() => {
   const canvas = summaryBarRef.current;
@@ -243,14 +294,6 @@ const minSelW = 4; // 青バーの最小幅
   ctx.restore();
 }, [canvasWidth, annotations, viewStart, scale, visibleFrames]);
 
-const ensureCurrentIndexVisible = (index) => {
-  if (index < viewStart) {
-    setViewStart(index);
-  } else if (index >= viewStart + visibleFrames) {
-    setViewStart(Math.min(FRAME_COUNT - visibleFrames, index - visibleFrames + 1));
-  }
-};
-
 // 再生
 useEffect(() => {
   if (!isPlaying) return;
@@ -268,15 +311,6 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, [isPlaying, playSpeed, viewStart, visibleFrames]);
 // キーボード（長押し含む） も同じく
-const onKeyDown = (e) => {
-  // ...
-  setCurrentIndex(idx => {
-    const next = dir === 'right' ? Math.min(FRAME_COUNT - 1, idx + 1) : Math.max(0, idx - 1);
-    ensureCurrentIndexVisible(next);
-    return next;
-  });
-  // ...
-}
   // 再生処理
 useEffect(() => {
   if (!isPlaying) return;
@@ -299,45 +333,71 @@ useEffect(() => {
 }, [isPlaying, playSpeed, viewStart, visibleFrames]);
 
 
+// 1. 専用のdirection setterを定義
+const setSingleAutoScrollDirection = (dir) => {
+  if (autoScrollDirectionRef.current === dir) return;
+  setAutoScrollDirection(dir);
+  autoScrollDirectionRef.current = dir;
+};
 
-
+// コンポーネント内、関数定義ブロックの上のほうに
+const makeFrameVisible = (idx) => {
+  setViewStart(vs => {
+    const vis = visibleFramesRef.current;      // 現在の表示幅
+    if (idx < vs) return idx;                  // 左へスクロール
+    if (idx >= vs + vis)                       // 右へスクロール
+      return Math.min(FRAME_COUNT - vis, idx - vis + 1);
+    return vs;                                 // 既に見えている
+  });
+};
 useEffect(() => {
-  if (!isSettingCurrentIndex) return;
+  // isSettingCurrentIndex だけでなく isDragging（右クリック）時もグローバルに追従
+  if (!(isSettingCurrentIndex || isDragging)) return;
 
   const handleGlobalMouseMove = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     if (!canvas || !rect) return;
 
+    let newIndex;
     let direction = null, distance = 0;
-
     if (e.clientX < rect.left) {
+      newIndex = viewStart;
       direction = 'left';
       distance = rect.left - e.clientX;
-      setCurrentIndex(viewStart);
     } else if (e.clientX > rect.right) {
+      newIndex = viewStart + visibleFrames - 1;
       direction = 'right';
       distance = e.clientX - rect.right;
-      setCurrentIndex(viewStart + visibleFrames - 1);
     } else {
-      setCurrentIndex(getFrameIndexAtX(e.clientX));
+      newIndex = getFrameIndexAtX(e.clientX);
     }
+
+    // どちらの操作でも
+    if (isSettingCurrentIndex) {
+      setCurrentIndexAndViewStart(newIndex);
+    }
+    if (isDragging) {
+      setDragEnd(newIndex);
+      setCurrentIndex(newIndex);
+makeFrameVisible(newIndex);   
+    }
+
     setAutoScrollState({ direction, distance });
     autoScrollStateRef.current = { direction, distance };
+    setSingleAutoScrollDirection(direction);
 
-    // ここでdirectionも保存
-    setAutoScrollDirection(direction);
-    autoScrollDirectionRef.current = direction;
   };
 
   const handleGlobalMouseUp = () => {
     setIsSettingCurrentIndex(false);
-    setAutoScrollDirection(null);
-    autoScrollDirectionRef.current = null;
+    setIsDragging(false); // 右クリック時も必ず終わるように
+    setSingleAutoScrollDirection(null);
     if (scrollIntervalRef.current) {
       clearInterval(scrollIntervalRef.current);
       scrollIntervalRef.current = null;
     }
+    // アノテーション追加/削除の確定処理も入れる（ここは既存ロジックでもOKなら省略）
   };
 
   window.addEventListener('mousemove', handleGlobalMouseMove);
@@ -347,47 +407,48 @@ useEffect(() => {
     window.removeEventListener('mousemove', handleGlobalMouseMove);
     window.removeEventListener('mouseup', handleGlobalMouseUp);
   };
-}, [isSettingCurrentIndex, viewStart, visibleFrames]);
+}, [isSettingCurrentIndex, isDragging, viewStart, visibleFrames]);
 
+// 既に currentIndexRef はあるので、viewStartRef も作る
+const viewStartRef = useRef(viewStart);
+useEffect(() => { viewStartRef.current = viewStart; }, [viewStart]);
 useEffect(() => {
-  if (!isSettingCurrentIndex || !autoScrollDirection) {
-    if (scrollIntervalRef.current) {
-      clearInterval(scrollIntervalRef.current);
-      scrollIntervalRef.current = null;
-    }
-    return;
-  }
-
+  // auto scrollは isSettingCurrentIndex か isDragging のどちらかで有効
   if (scrollIntervalRef.current) {
     clearInterval(scrollIntervalRef.current);
     scrollIntervalRef.current = null;
   }
+  if (!(isSettingCurrentIndex || isDragging) || !autoScrollDirection) {
+    return;
+  }
 
   scrollIntervalRef.current = setInterval(() => {
-    setViewStart((vs) => {
-      if (autoScrollDirectionRef.current === 'left') {
-        if (vs > 0) {
-          setCurrentIndex(idx => Math.max(0, idx - 1));
-          return vs - 1;
-        }
-      } else if (autoScrollDirectionRef.current === 'right') {
-        if (vs < FRAME_COUNT - visibleFrames) {
-          setCurrentIndex(idx => Math.min(FRAME_COUNT - 1, idx + 1));
-          return vs + 1;
-        }
-      }
-      return vs;
-    });
+    const dir  = autoScrollDirectionRef.current;
+    const step = dir === 'left' ? -1 : 1;
+    if (isSettingCurrentIndex) {
+      setCurrentIndex(prevIdx => {
+        const next = Math.max(0, Math.min(FRAME_COUNT - 1, prevIdx + step));
+        setViewStart(vs => {
+          const vis = visibleFramesRef.current;
+          if (next < vs) return next;
+          if (next >= vs + vis) return Math.min(FRAME_COUNT - vis, next - vis + 1);
+          return vs;
+        });
+        return next;
+      });
+    }
+    if (isDragging) {
+      setDragEnd(prev => {
+        const next = Math.max(0, Math.min(FRAME_COUNT - 1, prev + step));
+        setCurrentIndex(next);
+makeFrameVisible(next);   
+        return next;
+      });
+    }
   }, 16);
 
-  return () => {
-    if (scrollIntervalRef.current) {
-      clearInterval(scrollIntervalRef.current);
-      scrollIntervalRef.current = null;
-    }
-  };
-}, [isSettingCurrentIndex, autoScrollDirection, visibleFrames]);
-
+  return () => clearInterval(scrollIntervalRef.current);
+}, [isSettingCurrentIndex, isDragging, autoScrollDirection]);
   // --- 補助関数 ---
 const getFrameIndexAtX = (clientX) => {
   const canvas = canvasRef.current;
@@ -456,6 +517,20 @@ if (e.button === 0) {
     setCurrentIndex(index);
   }
 };
+
+
+const updateIndexWithView = (newIndex) => {
+  setCurrentIndex(() => {
+    setViewStart(vs => {
+      if (newIndex < vs) return newIndex;
+      if (newIndex >= vs + visibleFrames) return Math.min(FRAME_COUNT - visibleFrames, newIndex - visibleFrames + 1);
+      return vs;
+    });
+    return newIndex;
+  });
+};
+
+
 const handleMouseMove = (e) => {
   if (isPanning) {
     // 中ボタンでのみスクロール
@@ -466,11 +541,10 @@ const handleMouseMove = (e) => {
     setViewStart(next);
     // currentIndexは変えない（必要ならここに追従処理入れても良いが、今は要求されていない）
   }
-  if (isSettingCurrentIndex) {
-    // 左ボタンドラッグ中はcurrentIndexのみ更新
-    const index = getFrameIndexAtX(e.clientX);
-    setCurrentIndex(index);
-  }
+if (isSettingCurrentIndex) {
+  const index = getFrameIndexAtX(e.clientX);
+  setCurrentIndexAndViewStart(index);
+}
   if (!isDragging) return;
   const index = getFrameIndexAtX(e.clientX);
   setDragEnd(index);
@@ -511,11 +585,11 @@ const handleMouseUp = (e) => {
   }
 };
 
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-    const index = getFrameIndexAtX(e.clientX);
-    setCurrentIndex(index);
-  };
+const handleContextMenu = (e) => {
+  e.preventDefault();
+  const index = getFrameIndexAtX(e.clientX);
+  updateIndexWithView(index);
+};
 
 
 // 2. ズーム時のscale制約
@@ -692,14 +766,16 @@ const handleSummaryBarMouseUp = (e) => {
         </button>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-600">スピード</span>
-          <input
-            type="range"
-            min="1"
-            max="60"
-            value={playSpeed}
-            onChange={e => setPlaySpeed(Number(e.target.value))}
-            className="accent-blue-500"
-          />
+<input
+  type="range"
+  min="1"
+  max="60"
+  value={playSpeed}
+  onChange={e => setPlaySpeed(Number(e.target.value))}
+  className="accent-blue-500"
+  tabIndex={-1}
+  onKeyDown={e => e.preventDefault()}
+/>
           <span className="text-xs font-mono w-10 text-right">{playSpeed} fps</span>
         </div>
       </div>
