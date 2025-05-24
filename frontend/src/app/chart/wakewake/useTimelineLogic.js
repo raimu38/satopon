@@ -1,31 +1,112 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
-export const FRAME_COUNT = 3000;
+// ==== 画像パス生成 ====
+function generateImagePaths(count = 1000, minFrame = 100, maxFrame = 30000, baseTimestamp = 1684875600) {
+  const used = new Set();
+  const frames = [];
+  while (frames.length < count) {
+    const f = Math.floor(Math.random() * (maxFrame - minFrame + 1)) + minFrame;
+    if (!used.has(f)) {
+      frames.push(f);
+      used.add(f);
+    }
+  }
+  frames.sort((a, b) => a - b);
+  let t = baseTimestamp;
+  return frames.map(frame => {
+    const isAnomaly = Math.random() < 0.2;
+    const fractionalSec = (Math.random() * 0.999999).toFixed(6);
+    const suffix = isAnomaly ? "_anomaly" : "";
+    const p = `images/${frame}_${t}.${fractionalSec}${suffix}.jpg`;
+    t += Math.floor(Math.random() * 11) + 5;
+    return p;
+  });
+}
+
+// ==== 画像名パース ====
+function parseImageName(path) {
+  const fn = path.split('/').pop().replace('.jpg', '');
+  const [frameStr, timestampStr, ...rest] = fn.split('_');
+  const [timestamp, fraction] = timestampStr.split('.');
+  return {
+    frame: parseInt(frameStr, 10),
+    timestamp: parseInt(timestamp, 10),
+    isAnomaly: rest.length === 1,
+  };
+}
+
+// ==== 連続anomaly index配列→range配列 ====
+function buildErrorRanges(indices) {
+  if (!indices.length) return [];
+  indices.sort((a, b) => a - b);
+  const ranges = [];
+  let start = indices[0], end = indices[0];
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] === end + 1) end = indices[i];
+    else {
+      ranges.push({ start, end });
+      start = end = indices[i];
+    }
+  }
+  ranges.push({ start, end });
+  return ranges;
+}
+
+// ==== アノテーションの差分比較（Undo/Redo時のAPI差分検出） ====
+function diffAnnotations(oldArr, newArr, indexToFrame) {
+  newArr.forEach(n => {
+    if (!oldArr.some(o => o.start === n.start && o.end === n.end)) {
+      console.log("[API送信: add][undo/redo]", {
+        action: "add",
+        range: { startFrame: indexToFrame[n.start], endFrame: indexToFrame[n.end] }
+      });
+    }
+  });
+  oldArr.forEach(o => {
+    if (!newArr.some(n => n.start === o.start && n.end === o.end)) {
+      console.log("[API送信: remove][undo/redo]", {
+        action: "remove",
+        range: { startFrame: indexToFrame[o.start], endFrame: indexToFrame[o.end] }
+      });
+    }
+  });
+}
+
 const MIN_SCALE = 0;
-const MAX_SCALE = 100;
+const MAX_SCALE = 40;
 const INITIAL_SCALE = 8;
 const BAR_HEIGHT = 50;
-const LONG_PRESS_DELAY = 200; // ms
+const LONG_PRESS_DELAY = 200;
 
+// ==== カスタムフック ====
 export function useTimelineLogic() {
-  const canvasRef = useRef(null);
-  const summaryBarRef = useRef(null);
-  const containerRef = useRef(null);
+  // 1. データ関連state
+  const [imagePaths, setImagePaths] = useState([]);
+  const [frameToIndex, setFrameToIndex] = useState({});
+  const [indexToFrame, setIndexToFrame] = useState({});
+  const [indexToTimestamp, setIndexToTimestamp] = useState({});
+  const [FRAME_COUNT, setFRAME_COUNT] = useState(0);
 
+  // 2. タイムライン状態
   const [canvasWidth, setCanvasWidth] = useState(800);
   const [scale, setScale] = useState(INITIAL_SCALE);
   const [viewStart, setViewStart] = useState(0);
-
   const [annotations, setAnnotations] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  // 3. 操作系状態
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState(10);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(null);
   const [dragEnd, setDragEnd] = useState(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
-
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playSpeed, setPlaySpeed] = useState(10);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStartX, setPanStartX] = useState(null);
+  const [panViewStart, setPanViewStart] = useState(0);
+  const [isSettingCurrentIndex, setIsSettingCurrentIndex] = useState(false);
 
+  // サマリーバー
   const [dragBarMode, setDragBarMode] = useState(null); // 'move', 'left', 'right', null
   const [barDragStartX, setBarDragStartX] = useState(null);
   const [barDragStartView, setBarDragStartView] = useState(null);
@@ -33,167 +114,198 @@ export function useTimelineLogic() {
   const [barDragStartLeftFrame, setBarDragStartLeftFrame] = useState(null);
   const [barDragStartRightFrame, setBarDragStartRightFrame] = useState(null);
 
+  // Undo/Redo
+  const [history, setHistory] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+
+  // 自動スクロール
   const [autoScrollState, setAutoScrollState] = useState({ direction: null, distance: 0 });
-  const autoScrollStateRef = useRef({ direction: null, distance: 0 });
   const [autoScrollDirection, setAutoScrollDirection] = useState(null);
+  const autoScrollStateRef = useRef({ direction: null, distance: 0 });
   const autoScrollDirectionRef = useRef(null);
-  const [isSettingCurrentIndex, setIsSettingCurrentIndex] = useState(false);
   const scrollIntervalRef = useRef(null);
 
-  const visibleFrames = Math.min(FRAME_COUNT, Math.floor(canvasWidth / scale));
-  const visibleFramesRef = useRef(visibleFrames);
-  useEffect(() => { visibleFramesRef.current = visibleFrames }, [visibleFrames]);
-  const viewStartRef = useRef(viewStart);
-  useEffect(() => { viewStartRef.current = viewStart; }, [viewStart]);
+  // Refs
+  const canvasRef = useRef(null);
+  const summaryBarRef = useRef(null);
+  const containerRef = useRef(null);
 
-  const makeFrameVisible = (idx) => {
+  // visibleFrames（常に最新）
+  const visibleFrames = FRAME_COUNT > 0 && scale > 0 && canvasWidth > 0
+    ? Math.min(FRAME_COUNT, Math.floor(canvasWidth / scale))
+    : 1;
+
+  // ========== 初期化 ========== //
+  useEffect(() => {
+    const paths = generateImagePaths(1000, 100, 30000, 1684875600);
+    setImagePaths(paths);
+    const parsed = paths.map(parseImageName);
+    const allFrames = Array.from(new Set(parsed.map(p => p.frame))).sort((a, b) => a - b);
+
+    // マッピング
+    const frame2idx = {}, idx2frame = {}, idx2timestamp = {};
+    allFrames.forEach((f, i) => {
+      frame2idx[f] = i;
+      idx2frame[i] = f;
+      const img = parsed.find(p => p.frame === f);
+      idx2timestamp[i] = img?.timestamp ?? null;
+    });
+    setFrameToIndex(frame2idx);
+    setIndexToFrame(idx2frame);
+    setFRAME_COUNT(allFrames.length);
+    setIndexToTimestamp(idx2timestamp);
+
+    // anomaly
+    const anomalyFrames = parsed.filter(p => p.isAnomaly).map(p => frame2idx[p.frame]);
+    const initialRanges = buildErrorRanges(anomalyFrames).map(({ start, end }) => ({ start, end }));
+    setAnnotations(initialRanges);
+    setCurrentIndex(0);
+    setViewStart(0);
+    setScale(INITIAL_SCALE);
+    setHistory([]);
+    setRedoStack([]);
+  }, []);
+
+  // ========== Undo/Redo管理 ========== //
+  const pushHistory = useCallback(() => {
+    setHistory(prev => [...prev, annotations]);
+    setRedoStack([]);
+  }, [annotations]);
+  // Undo/Redoショートカット
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl+Z
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (history.length > 0) {
+          setRedoStack(rs => [...rs, annotations]);
+          const prev = history[history.length - 1];
+          diffAnnotations(annotations, prev, indexToFrame);
+          setAnnotations(prev);
+          setHistory(h => h.slice(0, -1));
+        }
+      }
+      // Ctrl+Shift+Z
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (redoStack.length > 0) {
+          setHistory(h => [...h, annotations]);
+          const next = redoStack[redoStack.length - 1];
+          diffAnnotations(annotations, next, indexToFrame);
+          setAnnotations(next);
+          setRedoStack(rs => rs.slice(0, -1));
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [annotations, history, redoStack, indexToFrame]);
+
+  // ========== アノテーション追加/削除 ========== //
+  const addAnnotation = useCallback((start, end) => {
+    let s = Math.min(start, end);
+    let e = Math.max(start, end);
+    let newAnnotations = [];
+    annotations.forEach(a => {
+      if (e + 1 >= a.start && s - 1 <= a.end) {
+        s = Math.min(s, a.start);
+        e = Math.max(e, a.end);
+      } else {
+        newAnnotations.push(a);
+      }
+    });
+    newAnnotations.push({ start: s, end: e });
+    newAnnotations.sort((a, b) => a.start - b.start);
+    setAnnotations(newAnnotations);
+
+    // API送信例
+    console.log("[API送信: add]", {
+      action: "add",
+      range: { startFrame: indexToFrame[s], endFrame: indexToFrame[e] }
+    });
+  }, [annotations, indexToFrame]);
+
+  const handleAddWithHistory = (start, end) => {
+    pushHistory();
+    addAnnotation(start, end);
+  };
+
+  const handleRemoveWithHistory = (start, end) => {
+    pushHistory();
+    setAnnotations(prev => {
+      let next = [];
+      prev.forEach(a => {
+        if (a.end < start || a.start > end) {
+          next.push(a);
+        }
+        if (a.start < start && a.end >= start) {
+          next.push({ start: a.start, end: start - 1 });
+        }
+        if (a.end > end && a.start <= end) {
+          next.push({ start: end + 1, end: a.end });
+        }
+      });
+      // API送信
+      console.log("[API送信: remove]", {
+        action: "remove",
+        range: { startFrame: indexToFrame[start], endFrame: indexToFrame[end] }
+      });
+      return next.sort((a, b) => a.start - b.start);
+    });
+  };
+
+  // ========== Index移動/再生/visible管理 ========== //
+  const makeFrameVisible = useCallback((idx) => {
     setViewStart(vs => {
-      const vis = visibleFramesRef.current;
+      const vis = visibleFrames;
       if (idx < vs) return idx;
       if (idx >= vs + vis) return Math.min(FRAME_COUNT - vis, idx - vis + 1);
       return vs;
     });
-  };
-
-  const setCurrentIndexWithVisible = (idx) => {
+  }, [visibleFrames, FRAME_COUNT]);
+  const setCurrentIndexWithVisible = useCallback((idx) => {
     setCurrentIndex(() => {
       makeFrameVisible(idx);
       return idx;
     });
-  };
+  }, [makeFrameVisible]);
 
-  // --- メインタイムラインの描画 ---
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvasWidth, 100);
-
-    for (let i = 0; i < visibleFrames; i++) {
-      const frameIndex = viewStart + i;
-      if (frameIndex >= FRAME_COUNT) continue;
-      const x = i * scale;
-      ctx.fillStyle = '#e5e7eb';
-      ctx.fillRect(x, 0, scale - 2, 100);
-      ctx.fillStyle = '#111827';
-      ctx.font = '12px sans-serif';
-      if (scale >= 10 || frameIndex % Math.ceil(10 / scale) === 0) {
-        ctx.fillText(frameIndex, x + 4, 30);
-      }
-    }
-
-    annotations.forEach(function (a) {
-      var start = a.start, end = a.end;
-      if (end < viewStart || start > viewStart + visibleFrames - 1) return;
-      var s = Math.max(start, viewStart);
-      var e = Math.min(end, viewStart + visibleFrames - 1);
-      var x = (s - viewStart) * scale;
-      var w = (e - s + 1) * scale;
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.6)';
-      ctx.fillRect(x, 0, w, 100);
-    });
-
-    if (isDragging && dragStart !== null && dragEnd !== null) {
-      var s = Math.max(Math.min(dragStart, dragEnd), viewStart);
-      var e = Math.min(Math.max(dragStart, dragEnd), viewStart + visibleFrames - 1);
-      var x = (s - viewStart) * scale;
-      var w = (e - s + 1) * scale;
-      ctx.fillStyle = isDeleting
-        ? 'rgba(253, 224, 71, 0.4)'
-        : 'rgba(239, 68, 68, 0.20)';
-      ctx.fillRect(x, 0, w, 100);
-    }
-
-    if (currentIndex !== null && currentIndex >= viewStart && currentIndex < viewStart + visibleFrames) {
-      var x = (currentIndex - viewStart) * scale + scale / 2;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, 100);
-      ctx.strokeStyle = '#2563eb';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.fillStyle = '#2563eb';
-      ctx.font = 'bold 16px sans-serif';
-      ctx.fillText(currentIndex, x + 6, 90);
-    }
-  }, [scale, annotations, currentIndex, viewStart, canvasWidth, isDragging, dragEnd, isDeleting, visibleFrames]);
-
-  // --- 画面リサイズ ---
-  useEffect(() => {
-    function handleResize() {
-      if (containerRef.current) {
-        var w = containerRef.current.offsetWidth;
-        setCanvasWidth(w);
-        setViewStart(function (vs) {
-          return Math.max(0, Math.min(FRAME_COUNT - Math.floor(w / scale), vs));
-        });
-      }
-    }
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return function () {
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [scale]);
-
-  // --- キーボード長押し用 ---
+  // キーボード左右ステップ移動＋長押しrepeat
   const longPressTimerRef = useRef(null);
   const repeatTimerRef = useRef(null);
   const arrowDirectionRef = useRef(null);
-
-  const stepMove = (dir) => {
-    setCurrentIndex(function (idx) {
-      var nextIdx = idx + (dir === 'right' ? 1 : -1);
+  const stepMove = useCallback((dir) => {
+    setCurrentIndex(idx => {
+      let nextIdx = idx + (dir === 'right' ? 1 : -1);
       nextIdx = Math.max(0, Math.min(FRAME_COUNT - 1, nextIdx));
       makeFrameVisible(nextIdx);
       return nextIdx;
     });
-  };
-
+  }, [FRAME_COUNT, makeFrameVisible, visibleFrames]);
   useEffect(() => {
-    function handleKeyDown(e) {
+    const handleKeyDown = (e) => {
       if (isPlaying) return;
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-
-      var dir = e.key === 'ArrowRight' ? 'right' : 'left';
-
+      const dir = e.key === 'ArrowRight' ? 'right' : 'left';
       if (arrowDirectionRef.current === dir) return;
-
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-      if (repeatTimerRef.current) {
-        clearInterval(repeatTimerRef.current);
-        repeatTimerRef.current = null;
-      }
-
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      if (repeatTimerRef.current) clearInterval(repeatTimerRef.current);
       arrowDirectionRef.current = dir;
       stepMove(dir);
-      longPressTimerRef.current = setTimeout(function () {
-        repeatTimerRef.current = setInterval(function () { stepMove(dir); }, 1000 / playSpeed);
+      longPressTimerRef.current = setTimeout(() => {
+        repeatTimerRef.current = setInterval(() => stepMove(dir), 1000 / playSpeed);
       }, LONG_PRESS_DELAY);
-    }
-
-    function handleKeyUp(e) {
+    };
+    const handleKeyUp = (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      var dir = e.key === 'ArrowRight' ? 'right' : 'left';
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-      if (repeatTimerRef.current) {
-        clearInterval(repeatTimerRef.current);
-        repeatTimerRef.current = null;
-      }
-      if (arrowDirectionRef.current === dir) {
-        arrowDirectionRef.current = null;
-      }
-    }
-
+      const dir = e.key === 'ArrowRight' ? 'right' : 'left';
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      if (repeatTimerRef.current) clearInterval(repeatTimerRef.current);
+      if (arrowDirectionRef.current === dir) arrowDirectionRef.current = null;
+    };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    return function () {
+    return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
@@ -202,41 +314,39 @@ export function useTimelineLogic() {
       repeatTimerRef.current = null;
       arrowDirectionRef.current = null;
     };
-  }, [playSpeed, isPlaying, visibleFrames]);
+  }, [playSpeed, isPlaying, visibleFrames, stepMove]);
 
-  // --- 再生処理 ---
+  // 再生自動送り
   useEffect(() => {
     if (!isPlaying) return;
-    var interval = setInterval(function () {
-      setCurrentIndex(function (prev) {
+    const interval = setInterval(() => {
+      setCurrentIndex(prev => {
         if (prev >= FRAME_COUNT - 1) {
           setIsPlaying(false);
           return prev;
         }
-        var next = prev + 1;
+        const next = prev + 1;
         makeFrameVisible(next);
         return next;
       });
     }, 1000 / playSpeed);
-    return function () { clearInterval(interval); };
-  }, [isPlaying, playSpeed, viewStart, visibleFrames]);
+    return () => clearInterval(interval);
+  }, [isPlaying, playSpeed, viewStart, visibleFrames, FRAME_COUNT, makeFrameVisible]);
 
-  // --- グローバルマウスムーブ&アップ ---
-  const setSingleAutoScrollDirection = (dir) => {
+  // ========== グローバルマウスmove/upでautoスクロール等 ========== //
+  const setSingleAutoScrollDirection = useCallback((dir) => {
     if (autoScrollDirectionRef.current === dir) return;
     setAutoScrollDirection(dir);
     autoScrollDirectionRef.current = dir;
-  };
-
+  }, []);
   useEffect(() => {
     if (!(isSettingCurrentIndex || isDragging)) return;
-    function handleGlobalMouseMove(e) {
-      var canvas = canvasRef.current;
-      var rect = canvas && canvas.getBoundingClientRect();
+    const handleGlobalMouseMove = (e) => {
+      const canvas = canvasRef.current;
+      const rect = canvas?.getBoundingClientRect();
       if (!canvas || !rect) return;
-
-      var newIndex;
-      var direction = null, distance = 0;
+      let newIndex;
+      let direction = null, distance = 0;
       if (e.clientX < rect.left) {
         newIndex = viewStart;
         direction = 'left';
@@ -248,113 +358,76 @@ export function useTimelineLogic() {
       } else {
         newIndex = getFrameIndexAtX(e.clientX);
       }
-
-      if (isSettingCurrentIndex) {
-        setCurrentIndexWithVisible(newIndex);
-      }
+      if (isSettingCurrentIndex) setCurrentIndexWithVisible(newIndex);
       if (isDragging) {
         setDragEnd(newIndex);
         setCurrentIndex(newIndex);
         makeFrameVisible(newIndex);
       }
-
-      setAutoScrollState({ direction: direction, distance: distance });
-      autoScrollStateRef.current = { direction: direction, distance: distance };
+      setAutoScrollState({ direction, distance });
+      autoScrollStateRef.current = { direction, distance };
       setSingleAutoScrollDirection(direction);
-    }
-
-    function handleGlobalMouseUp() {
+    };
+    const handleGlobalMouseUp = () => {
       setIsSettingCurrentIndex(false);
       setIsDragging(false);
       setSingleAutoScrollDirection(null);
-      if (scrollIntervalRef.current) {
-        clearInterval(scrollIntervalRef.current);
-        scrollIntervalRef.current = null;
-      }
-    }
-
+      if (scrollIntervalRef.current) clearInterval(scrollIntervalRef.current);
+    };
     window.addEventListener('mousemove', handleGlobalMouseMove);
     window.addEventListener('mouseup', handleGlobalMouseUp);
-
-    return function () {
+    return () => {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [isSettingCurrentIndex, isDragging, viewStart, visibleFrames]);
+  }, [isSettingCurrentIndex, isDragging, viewStart, visibleFrames, makeFrameVisible, setCurrentIndexWithVisible, setSingleAutoScrollDirection]);
 
-  // --- auto scroll ---
   useEffect(() => {
-    if (scrollIntervalRef.current) {
-      clearInterval(scrollIntervalRef.current);
-      scrollIntervalRef.current = null;
-    }
-    if (!(isSettingCurrentIndex || isDragging) || !autoScrollDirection) {
-      return;
-    }
-
-    scrollIntervalRef.current = setInterval(function () {
-      var dir = autoScrollDirectionRef.current;
-      var step = dir === 'left' ? -1 : 1;
+    if (scrollIntervalRef.current) clearInterval(scrollIntervalRef.current);
+    if (!(isSettingCurrentIndex || isDragging) || !autoScrollDirection) return;
+    scrollIntervalRef.current = setInterval(() => {
+      const dir = autoScrollDirectionRef.current;
+      const step = dir === 'left' ? -1 : 1;
       if (isSettingCurrentIndex) {
-        setCurrentIndex(function (prevIdx) {
-          var next = Math.max(0, Math.min(FRAME_COUNT - 1, prevIdx + step));
+        setCurrentIndex(prevIdx => {
+          const next = Math.max(0, Math.min(FRAME_COUNT - 1, prevIdx + step));
           makeFrameVisible(next);
           return next;
         });
       }
       if (isDragging) {
-        setDragEnd(function (prev) {
-          var next = Math.max(0, Math.min(FRAME_COUNT - 1, prev + step));
+        setDragEnd(prev => {
+          const next = Math.max(0, Math.min(FRAME_COUNT - 1, prev + step));
           setCurrentIndex(next);
           makeFrameVisible(next);
           return next;
         });
       }
     }, 16);
+    return () => clearInterval(scrollIntervalRef.current);
+  }, [isSettingCurrentIndex, isDragging, autoScrollDirection, FRAME_COUNT, makeFrameVisible]);
 
-    return function () { clearInterval(scrollIntervalRef.current); };
-  }, [isSettingCurrentIndex, isDragging, autoScrollDirection]);
-
-  const getFrameIndexAtX = (clientX) => {
-    var canvas = canvasRef.current;
-    var rect = canvas.getBoundingClientRect();
-    var scaleX = canvas.width / rect.width;
-    var x = (clientX - rect.left) * scaleX;
+  // ========== 補助関数 ========== //
+  const getFrameIndexAtX = useCallback((clientX) => {
+    const canvas = canvasRef.current;
+    const rect = canvas?.getBoundingClientRect();
+    const scaleX = canvas && rect ? canvas.width / rect.width : 1;
+    let x = rect ? (clientX - rect.left) * scaleX : 0;
     if (x < 0) x = 0;
-    if (x > canvas.width) x = canvas.width;
+    if (canvas && x > canvas.width) x = canvas.width;
     return Math.max(0, Math.min(FRAME_COUNT - 1, Math.floor(x / scale) + viewStart));
-  };
+  }, [canvasRef, scale, viewStart, FRAME_COUNT]);
 
-  const addAnnotation = (start, end) => {
-    var s = Math.min(start, end);
-    var e = Math.max(start, end);
-    var newAnnotations = [];
-    annotations.forEach(function (a) {
-      if (e + 1 >= a.start && s - 1 <= a.end) {
-        s = Math.min(s, a.start);
-        e = Math.max(e, a.end);
-      } else {
-        newAnnotations.push(a);
-      }
-    });
-    newAnnotations.push({ start: s, end: e });
-    newAnnotations.sort(function (a, b) { return a.start - b.start; });
-    setAnnotations(newAnnotations);
-  };
-
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStartX, setPanStartX] = useState(null);
-  const [panViewStart, setPanViewStart] = useState(0);
-
-  const handleMouseDown = (e) => {
-    if (e.button === 1) {
+  // ========== タイムライン・マウスイベント ========== //
+  const handleMouseDown = useCallback((e) => {
+    if (e.button === 1) { // middle: パン
       e.preventDefault();
       setIsPanning(true);
       setPanStartX(e.clientX);
       setPanViewStart(viewStart);
       return;
     }
-    if (e.button === 2) {
+    if (e.button === 2) { // right: 削除or追加ドラッグ
       e.preventDefault();
       const index = getFrameIndexAtX(e.clientX);
       if (e.ctrlKey) {
@@ -370,17 +443,17 @@ export function useTimelineLogic() {
       setIsDeleting(false);
       return;
     }
-    if (e.button === 0) {
+    if (e.button === 0) { // left: インデックス
       e.preventDefault();
       setIsSettingCurrentIndex(true);
       const index = getFrameIndexAtX(e.clientX);
       setCurrentIndexWithVisible(index);
     }
-  };
+  }, [viewStart, getFrameIndexAtX, setCurrentIndexWithVisible]);
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = useCallback((e) => {
     if (isPanning) {
-      const dx = e.clientX - (panStartX || 0);
+      const dx = e.clientX - panStartX;
       const frameShift = -Math.round(dx / scale);
       let next = panViewStart + frameShift;
       next = Math.max(0, Math.min(FRAME_COUNT - visibleFrames, next));
@@ -391,73 +464,98 @@ export function useTimelineLogic() {
       setCurrentIndexWithVisible(index);
     }
     if (!isDragging) return;
+    if (e.buttons === 2 && e.ctrlKey) {
+    if (!isDeleting) setIsDeleting(true);
+  }
+  // 右クリックのみなら isDeleting false
+  else if (e.buttons === 2) {
+    if (isDeleting) setIsDeleting(false);
+  }
     const index = getFrameIndexAtX(e.clientX);
     setDragEnd(index);
     setCurrentIndex(index);
-  };
+  }, [isPanning, panStartX, panViewStart, scale, FRAME_COUNT, visibleFrames, isSettingCurrentIndex, getFrameIndexAtX, setCurrentIndexWithVisible, isDragging]);
 
-  const handleMouseUp = (e) => {
+  const handleMouseUp = useCallback((e) => {
     setIsPanning(false);
     setIsSettingCurrentIndex(false);
     if (isDragging && dragStart !== null && dragEnd !== null) {
       const start = Math.min(dragStart, dragEnd);
       const end = Math.max(dragStart, dragEnd);
-
       if (isDeleting) {
-        setAnnotations(function (prev) {
-          var next = [];
-          prev.forEach(function (a) {
-            if (a.end < start || a.start > end) {
-              next.push(a);
-            }
-            if (a.start < start && a.end >= start) {
-              next.push({ start: a.start, end: start - 1 });
-            }
-            if (a.end > end && a.start <= end) {
-              next.push({ start: end + 1, end: a.end });
-            }
-          });
-          return next.sort(function (a, b) { return a.start - b.start; });
-        });
+        handleRemoveWithHistory(start, end);
       } else {
-        addAnnotation(start, end);
+        handleAddWithHistory(start, end);
       }
       setIsDragging(false);
       setDragStart(null);
       setDragEnd(null);
       setIsDeleting(false);
     }
-  };
+  }, [isDragging, dragStart, dragEnd, isDeleting, handleRemoveWithHistory, handleAddWithHistory]);
 
-  const handleContextMenu = (e) => {
+  const handleContextMenu = useCallback((e) => {
     e.preventDefault();
-    const index = getFrameIndexAtX(e.clientX);
-    setCurrentIndexWithVisible(index);
-  };
+    const idx = getFrameIndexAtX(e.clientX);
+    let newA = { start: idx, end: idx };
+    const merged = [];
+    for (let a of annotations) {
+      if (!(newA.end < a.start - 1 || newA.start > a.end + 1)) {
+        newA.start = Math.min(newA.start, a.start);
+        newA.end   = Math.max(newA.end,   a.end);
+      } else {
+        merged.push(a);
+      }
+    }
+    merged.push(newA);
+    const sorted = merged.sort((a,b)=>a.start-b.start);
+    const clean = [];
+    for (let r of sorted) {
+      if (!clean.length) clean.push(r)
+      else {
+        const last = clean[clean.length - 1];
+        if (r.start <= last.end + 1) last.end = Math.max(last.end, r.end)
+        else clean.push(r)
+      }
+    }
+    setAnnotations(clean);
+  }, [annotations, getFrameIndexAtX]);
 
-  const handleWheel = (e) => {
+  // ========== ホイールズーム ========== //
+  const handleWheel = useCallback((e) => {
     e.preventDefault();
-    var left = canvasRef.current.getBoundingClientRect().left;
-    var x = e.clientX - left;
-    var mouseFrame = Math.floor(x / scale) + viewStart;
-
-    var minScale = canvasWidth / FRAME_COUNT;
-    var newScale = scale + (e.deltaY < 0 ? 1 : -1);
+    if (FRAME_COUNT <= 1 || canvasWidth <= 1 || scale <= 0) return;
+    const { left } = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - left;
+    const mouseFrame = Math.floor(x / scale) + viewStart;
+    let minScale = canvasWidth / FRAME_COUNT;
+    let newScale = scale + (e.deltaY < 0 ? 1 : -1);
     newScale = Math.max(minScale, Math.min(MAX_SCALE, newScale));
     if (newScale === scale) return;
-
-    var newVisible = Math.min(FRAME_COUNT, Math.floor(canvasWidth / newScale));
-    var newViewStart = mouseFrame - Math.floor((x / canvasWidth) * newVisible);
+    const newVisible = Math.min(FRAME_COUNT, Math.floor(canvasWidth / newScale));
+    let newViewStart = mouseFrame - Math.floor((x / canvasWidth) * newVisible);
     newViewStart = Math.max(0, Math.min(FRAME_COUNT - newVisible, newViewStart));
     setScale(newScale);
     setViewStart(newViewStart);
-  };
+  }, [FRAME_COUNT, canvasWidth, scale, viewStart]);
 
-  const handleSummaryBarMouseDown = (e) => {
-    var rect = summaryBarRef.current.getBoundingClientRect();
-    var x = e.clientX - rect.left;
-    var selX = (viewStart / FRAME_COUNT) * canvasWidth;
-    var selW = (visibleFrames / FRAME_COUNT) * canvasWidth;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handler = (e) => handleWheel(e);
+    canvas.addEventListener('wheel', handler, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', handler);
+    };
+  }, [canvasRef, handleWheel]);
+
+  // ========== サマリーバーの操作 ========== //
+  const handleSummaryBarMouseDown = useCallback((e) => {
+    if (!FRAME_COUNT) return; 
+    const rect = summaryBarRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const selX = (viewStart / FRAME_COUNT) * canvasWidth;
+    const selW = (visibleFrames / FRAME_COUNT) * canvasWidth;
 
     if (Math.abs(x - selX) < 8) {
       setDragBarMode('left');
@@ -481,178 +579,111 @@ export function useTimelineLogic() {
       setBarDragStartLeftFrame(null);
       setBarDragStartRightFrame(null);
     }
-  };
-
-  const handleSummaryBarMouseMove = (e) => {
-    var canvas = summaryBarRef.current;
+  }, [FRAME_COUNT, summaryBarRef, viewStart, visibleFrames, canvasWidth, scale]);
+  const handleSummaryBarMouseMove = useCallback((e) => {
+    const canvas = summaryBarRef.current;
     if (!canvas) return;
-    var rect = canvas.getBoundingClientRect();
-    var x = e.clientX - rect.left;
-    var totalFrames = FRAME_COUNT;
-
-    var handleW = 6;
-    var minSelW = handleW * 2;
-    var selW = (visibleFrames / FRAME_COUNT) * canvasWidth - handleW;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const totalFrames = FRAME_COUNT;
+    const handleW = 6;
+    const minSelW = handleW * 2;
+    let selW = (visibleFrames / FRAME_COUNT) * canvasWidth - handleW;
     if (selW < minSelW) selW = minSelW;
-    var selX = (viewStart / FRAME_COUNT) * canvasWidth + handleW / 2;
-
+    const selX = (viewStart / FRAME_COUNT) * canvasWidth + handleW / 2;
     if (dragBarMode) {
-      if (dragBarMode === 'move') {
-        canvas.style.cursor = 'grabbing';
-      } else if (dragBarMode === 'left' || dragBarMode === 'right') {
-        canvas.style.cursor = 'ew-resize';
-      }
+      if (dragBarMode === 'move') canvas.style.cursor = 'grabbing';
+      else if (dragBarMode === 'left' || dragBarMode === 'right') canvas.style.cursor = 'ew-resize';
     } else {
-      if (Math.abs(x - selX) < handleW || Math.abs(x - (selX + selW)) < handleW) {
-        canvas.style.cursor = 'ew-resize';
-      } else if (x > selX && x < selX + selW) {
-        canvas.style.cursor = 'pointer';
-      } else {
-        canvas.style.cursor = 'pointer';
-      }
+      if (Math.abs(x - selX) < handleW || Math.abs(x - (selX + selW)) < handleW) canvas.style.cursor = 'ew-resize';
+      else if (x > selX && x < selX + selW) canvas.style.cursor = 'pointer';
+      else canvas.style.cursor = 'pointer';
     }
-
     if (!dragBarMode) return;
-
     if (dragBarMode === 'move' && barDragStartX !== null) {
-      var dx = x - barDragStartX;
-      var frameShift = Math.round((dx / canvasWidth) * totalFrames);
-      var newStart = (barDragStartView || 0) + frameShift;
+      const dx = x - barDragStartX;
+      const frameShift = Math.round((dx / canvasWidth) * totalFrames);
+      let newStart = barDragStartView + frameShift;
       newStart = Math.max(0, Math.min(FRAME_COUNT - visibleFrames, newStart));
       setViewStart(newStart);
     }
     if (dragBarMode === 'left') {
-      var rightFrame = barDragStartRightFrame || ((barDragStartView || 0) + visibleFrames);
-      var leftFrame = Math.round((x / canvasWidth) * totalFrames);
+      let rightFrame = barDragStartRightFrame ?? (barDragStartView + visibleFrames);
+      let leftFrame = Math.round((x / canvasWidth) * totalFrames);
       leftFrame = Math.max(0, Math.min(rightFrame - 1, leftFrame));
-      var newFrames = rightFrame - leftFrame;
+      let newFrames = rightFrame - leftFrame;
       newFrames = Math.max(1, Math.min(FRAME_COUNT, newFrames));
-      var newScale = canvasWidth / newFrames;
+      let newScale = canvasWidth / newFrames;
       newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
       setScale(newScale);
       setViewStart(leftFrame);
     }
     if (dragBarMode === 'right') {
-      var leftFrame = barDragStartLeftFrame || (barDragStartView || 0);
-      var rightFrame = Math.round((x / canvasWidth) * totalFrames);
+      let leftFrame = barDragStartLeftFrame ?? barDragStartView;
+      let rightFrame = Math.round((x / canvasWidth) * totalFrames);
       rightFrame = Math.max(leftFrame + 1, Math.min(FRAME_COUNT, rightFrame));
-      var newFrames = rightFrame - leftFrame;
+      let newFrames = rightFrame - leftFrame;
       newFrames = Math.max(1, Math.min(FRAME_COUNT, newFrames));
-      var newScale = canvasWidth / newFrames;
+      let newScale = canvasWidth / newFrames;
       newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
       setScale(newScale);
       setViewStart(leftFrame);
     }
-  };
-
-  const handleSummaryBarMouseUp = (e) => {
+  }, [FRAME_COUNT, summaryBarRef, viewStart, visibleFrames, canvasWidth, dragBarMode, barDragStartX, barDragStartView, barDragStartRightFrame, barDragStartLeftFrame]);
+  const handleSummaryBarMouseUp = useCallback(() => {
     setDragBarMode(null);
     setBarDragStartX(null);
     setBarDragStartView(null);
     setBarDragStartScale(null);
     setBarDragStartLeftFrame(null);
     setBarDragStartRightFrame(null);
-  };
+  }, []);
 
-  // --- サマリーバー描画 ---
+  // ========== リサイズ ========== //
   useEffect(() => {
-    var canvas = summaryBarRef.current;
-    if (!canvas) return;
-    var ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvasWidth, BAR_HEIGHT);
+    const handleResize = () => {
+      if (containerRef.current) {
+        const w = containerRef.current.offsetWidth;
+        setCanvasWidth(w);
+        setViewStart((vs) => Math.max(0, Math.min(FRAME_COUNT - Math.floor(w / scale), vs)));
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [scale, FRAME_COUNT]);
 
-    annotations.forEach(function (a) {
-      var start = a.start, end = a.end;
-      var x = (start / FRAME_COUNT) * canvasWidth;
-      var w = ((end - start + 1) / FRAME_COUNT) * canvasWidth;
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
-      ctx.fillRect(x, 6, w, BAR_HEIGHT - 12);
-    });
-
-    var handleW = 5, handleH = BAR_HEIGHT - 8;
-    var minSelW = 4;
-    var selW = (visibleFrames / FRAME_COUNT) * canvasWidth - handleW;
-    if (selW < minSelW) selW = minSelW;
-    var selX = (viewStart / FRAME_COUNT) * canvasWidth + handleW / 2;
-    var radius = 1;
-
-    ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(selX, 4, selW, BAR_HEIGHT - 8, radius);
-    } else {
-      ctx.rect(selX, 4, selW, BAR_HEIGHT - 8);
-    }
-
-    var grad = ctx.createLinearGradient(selX, 0, selX + selW, 0);
-    grad.addColorStop(0, 'rgba(37,99,235,0.18)');
-    grad.addColorStop(0.5, 'rgba(37,99,235,0.36)');
-    grad.addColorStop(1, 'rgba(37,99,235,0.18)');
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#2563eb';
-    ctx.stroke();
-
-    var leftHandleX = selX - handleW / 2;
-    var rightHandleX = selX + selW - handleW / 2;
-
-    ctx.save();
-    ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(leftHandleX, 4, handleW, handleH, 4);
-    } else {
-      ctx.rect(leftHandleX, 4, handleW, handleH);
-    }
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-    ctx.lineWidth = 2.2;
-    ctx.strokeStyle = '#2563eb';
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.save();
-    ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(rightHandleX, 4, handleW, handleH, 4);
-    } else {
-      ctx.rect(rightHandleX, 4, handleW, handleH);
-    }
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-    ctx.lineWidth = 2.2;
-    ctx.strokeStyle = '#2563eb';
-    ctx.stroke();
-    ctx.restore();
-  }, [canvasWidth, annotations, viewStart, scale, visibleFrames]);
-
+  // ========== export ========== //
   return {
+    // refs
     canvasRef,
     summaryBarRef,
     containerRef,
-    canvasWidth, setCanvasWidth,
-    scale, setScale,
-    viewStart, setViewStart,
-    annotations, setAnnotations,
-    isDragging, setIsDragging,
-    dragStart, setDragStart,
-    dragEnd, setDragEnd,
-    currentIndex, setCurrentIndex,
-    isDeleting, setIsDeleting,
-    isPlaying, setIsPlaying,
-    playSpeed, setPlaySpeed,
+    // state
+    indexToFrame,
+    currentIndex,
+    isPanning,
     dragBarMode,
-    barDragStartX, barDragStartView, barDragStartScale,
-    barDragStartLeftFrame, barDragStartRightFrame,
-    isSettingCurrentIndex, setIsSettingCurrentIndex,
+    canvasWidth,
+    isPlaying,
+    setIsPlaying,
+    playSpeed,
+    setPlaySpeed,
+    indexToTimestamp,
+    FRAME_COUNT,
+    annotations,
+    viewStart,
+    scale,
+    visibleFrames,
+    BAR_HEIGHT,
+    // ハンドラ
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
-    handleWheel,
     handleContextMenu,
     handleSummaryBarMouseDown,
     handleSummaryBarMouseMove,
     handleSummaryBarMouseUp,
-    BAR_HEIGHT,
-    isPanning
+    // 追加で必要なstate/handlerがあればここに
   };
 }

@@ -1,9 +1,10 @@
 'use client'
 
 import React, { useState, useRef, useEffect } from 'react';
+import CustomSpeedBar from './CutomSpeedBar.js'
 
 const MIN_SCALE = 0;
-const MAX_SCALE = 1000;
+const MAX_SCALE = 40;
 const INITIAL_SCALE = 8;
 const BAR_HEIGHT = 50;
 const LONG_PRESS_DELAY = 200; // ms
@@ -62,6 +63,30 @@ function buildErrorRanges(indices) {
   return ranges;
 }
 
+function diffAnnotations(oldArr, newArr, indexToFrame) {
+  // oldArr, newArr: [{start, end}, ...]
+  // 1. 新しい配列にしか無い区間 → add
+  newArr.forEach(n => {
+    if (!oldArr.some(o => o.start === n.start && o.end === n.end)) {
+      // 追加された範囲
+      console.log("[API送信: add][undo/redo]", {
+        action: "add",
+        range: { startFrame: indexToFrame[n.start], endFrame: indexToFrame[n.end] }
+      });
+    }
+  });
+  // 2. 古い配列にしか無い区間 → remove
+  oldArr.forEach(o => {
+    if (!newArr.some(n => n.start === o.start && n.end === o.end)) {
+      // 消された範囲
+      console.log("[API送信: remove][undo/redo]", {
+        action: "remove",
+        range: { startFrame: indexToFrame[o.start], endFrame: indexToFrame[o.end] }
+      });
+    }
+  });
+}
+
 
 
 function Timeline() {
@@ -109,6 +134,11 @@ const [indexToTimestamp, setIndexToTimestamp] = useState({});
   const [isSettingCurrentIndex, setIsSettingCurrentIndex] = useState(false);
   const scrollIntervalRef = useRef(null);
 
+ // === Undo/Redo 用state ===
+  const [history, setHistory] = useState([]);      // 過去のannotations（stack）
+  const [redoStack, setRedoStack] = useState([]);  // Redo用（stack）
+
+
   const visibleFrames = FRAME_COUNT > 0 && scale > 0 && canvasWidth > 0
     ? Math.min(FRAME_COUNT, Math.floor(canvasWidth / scale))
     : 1;
@@ -139,6 +169,10 @@ const makeFrameVisible = (idx) => {
 
     // 圧縮 index マッピング
   const frame2idx = {}, idx2frame = {}, idx2timestamp = {};
+
+
+// 2つのannotations配列を比較して、add/remove部分を抽出してAPI送信
+
  allFrames.forEach((f, i) => {
     frame2idx[f] = i;
     idx2frame[i] = f;
@@ -156,63 +190,160 @@ setIndexToTimestamp(idx2timestamp);
     const initialRanges = buildErrorRanges(anomalyFrames).map(({ start, end }) => ({ start, end }));
     setAnnotations(initialRanges);
   }, []);
-  // --- メインタイムラインの描画 ---
-  useEffect(() => {
-if (!FRAME_COUNT || !canvasWidth || !scale || !visibleFrames || FRAME_COUNT <= 0) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvasWidth, 100);
+  // === ここからUndo/Redo専用コード ===
+  // 操作前のannotationsをhistoryに積むためのラッパー
+  const pushHistory = () => {
+    setHistory(prev => [...prev, annotations]);
+    setRedoStack([]); // 新規操作したらredoは消す
+  };
 
-    for (let i = 0; i < visibleFrames; i++) {
-      const frameIndex = viewStart + i;
-      if (frameIndex >= FRAME_COUNT) continue;
-      const x = i * scale;
-      ctx.fillStyle = '#e5e7eb';
-      ctx.fillRect(x, 0, scale - 2, 100);
-      ctx.fillStyle = '#111827';
-      ctx.font = '12px sans-serif';
-      if (scale >= 10 || frameIndex % Math.ceil(10 / scale) === 0) {
-  ctx.fillText(frameIndex + " (" + (indexToFrame[frameIndex] ?? "") + ")", x + 4, 30);
+  // add/remove直前に呼ぶ
+  const handleAddWithHistory = (start, end) => {
+    pushHistory();
+    addAnnotation(start, end);
+  };
+  const handleRemoveWithHistory = (start, end) => {
+    pushHistory();
+    // removeのロジックをここで再利用
+    setAnnotations(prev => {
+      let next = [];
+      prev.forEach(a => {
+        if (a.end < start || a.start > end) {
+          next.push(a);
+        }
+        if (a.start < start && a.end >= start) {
+          next.push({ start: a.start, end: start - 1 });
+        }
+        if (a.end > end && a.start <= end) {
+          next.push({ start: end + 1, end: a.end });
+        }
+      });
+      // API送信
+      console.log("[API送信: remove]", {
+        action: "remove",
+        range: { startFrame: indexToFrame[start], endFrame: indexToFrame[end] }
+      });
+      return next.sort((a, b) => a.start - b.start);
+    });
+  };
+
+  // Undo/Redo 本体
+useEffect(() => {
+  const handleKeyDown = (e) => {
+    // Ctrl + Z
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (history.length > 0) {
+        setRedoStack(rs => [...rs, annotations]);
+        const prev = history[history.length - 1];
+        diffAnnotations(annotations, prev, indexToFrame); // ←ここで差分API送信！
+        setAnnotations(prev);
+        setHistory(h => h.slice(0, -1));
       }
     }
-
-    annotations.forEach(({ start, end }) => {
- if (!FRAME_COUNT) return; // ガード
-      if (end < viewStart || start > viewStart + visibleFrames - 1) return;
-      const s = Math.max(start, viewStart);
-      const e = Math.min(end, viewStart + visibleFrames - 1);
-      const x = (s - viewStart) * scale;
-      const w = (e - s + 1) * scale;
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.6)';
-      ctx.fillRect(x, 0, w, 100);
-    });
-
-    if (isDragging && dragStart !== null && dragEnd !== null) {
-      const s = Math.max(Math.min(dragStart, dragEnd), viewStart);
-      const e = Math.min(Math.max(dragStart, dragEnd), viewStart + visibleFrames - 1);
-      const x = (s - viewStart) * scale;
-      const w = (e - s + 1) * scale;
-      ctx.fillStyle = isDeleting
-        ? 'rgba(253, 224, 71, 0.4)'
-        : 'rgba(239, 68, 68, 0.20)';
-      ctx.fillRect(x, 0, w, 100);
+    // Ctrl + Shift + Z
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (redoStack.length > 0) {
+        setHistory(h => [...h, annotations]);
+        const next = redoStack[redoStack.length - 1];
+        diffAnnotations(annotations, next, indexToFrame); // ←ここで差分API送信！
+        setAnnotations(next);
+        setRedoStack(rs => rs.slice(0, -1));
+      }
     }
+  };
+  window.addEventListener('keydown', handleKeyDown);
+  return () => window.removeEventListener('keydown', handleKeyDown);
+}, [annotations, history, redoStack, indexToFrame]);
+  // --- メインタイムラインの描画 ---
+useEffect(() => {
+  if (!FRAME_COUNT || !canvasWidth || !scale || !visibleFrames || FRAME_COUNT <= 0) return;
+  const canvas = canvasRef.current;
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvasWidth, 100);
 
-    if (currentIndex !== null && currentIndex >= viewStart && currentIndex < viewStart + visibleFrames) {
-      const x = (currentIndex - viewStart) * scale + scale / 2;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, 100);
-      ctx.strokeStyle = '#2563eb';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.fillStyle = '#2563eb';
-      ctx.font = 'bold 16px sans-serif';
-      ctx.fillText(currentIndex, x + 6, 90);
-    }
-  }, [scale, annotations, currentIndex, viewStart, canvasWidth, isDragging, dragEnd, isDeleting, visibleFrames,FRAME_COUNT]);
+  // --- 背景：ダークグラデーション ---
+  const bgGrad = ctx.createLinearGradient(0, 0, canvasWidth, 100);
+  bgGrad.addColorStop(0, '#181e2a');
+  bgGrad.addColorStop(1, '#232946');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, canvasWidth, 100);
 
+  // --- フレームバー（ダークグレー寄せ・やや陰影） ---
+  for (let i = 0; i < visibleFrames; i++) {
+    const frameIndex = viewStart + i;
+    if (frameIndex >= FRAME_COUNT) continue;
+    const x = i * scale;
+
+    // バーのグラデ or 単色
+    const barGrad = ctx.createLinearGradient(x, 0, x, 100);
+    barGrad.addColorStop(0, '#313a4d');
+    barGrad.addColorStop(1, '#232946');
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(x, 8, scale - 2, 84);
+
+    // バーの境界（ブルーグレー系）
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.11)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, 8, scale - 2, 84);
+  }
+
+  // --- アノテーション（やや薄赤の透過） ---
+  annotations.forEach(({ start, end }) => {
+    if (!FRAME_COUNT) return;
+    if (end < viewStart || start > viewStart + visibleFrames - 1) return;
+    const s = Math.max(start, viewStart);
+    const e = Math.min(end, viewStart + visibleFrames - 1);
+    const x = (s - viewStart) * scale;
+    const w = (e - s + 1) * scale;
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.23)';
+    ctx.fillRect(x, 8, w, 84);
+  });
+
+  // --- ドラッグ範囲（青/黄色で薄く表示、削除は黄） ---
+  if (isDragging && dragStart !== null && dragEnd !== null) {
+    const s = Math.max(Math.min(dragStart, dragEnd), viewStart);
+    const e = Math.min(Math.max(dragStart, dragEnd), viewStart + visibleFrames - 1);
+    const x = (s - viewStart) * scale;
+    const w = (e - s + 1) * scale;
+    ctx.fillStyle = isDeleting
+      ? 'rgba(251, 191, 36, 0.25)' // 薄黄
+      : 'rgba(59, 130, 246, 0.18)'; // #3b82f6青 薄め
+    ctx.fillRect(x, 8, w, 84);
+  }
+
+  // --- 現在地インジケータ（ブルーでシャドウ、ドットも） ---
+  if (currentIndex !== null && currentIndex >= viewStart && currentIndex < viewStart + visibleFrames) {
+    const x = (currentIndex - viewStart) * scale + scale / 2;
+    ctx.save();
+    ctx.shadowColor = '#2563eb88';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(x, 8);
+    ctx.lineTo(x, 92);
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // インジケータドット
+    ctx.beginPath();
+    ctx.arc(x, 50, 6, 0, Math.PI * 2);
+    const dotGrad = ctx.createRadialGradient(x, 50, 0, x, 50, 6);
+    dotGrad.addColorStop(0, '#3b82f6');
+    dotGrad.addColorStop(1, '#1e293b');
+    ctx.fillStyle = dotGrad;
+    ctx.globalAlpha = 0.88;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}, [
+  scale, annotations, currentIndex, viewStart, canvasWidth, isDragging, dragEnd,
+  isDeleting, visibleFrames, FRAME_COUNT
+]);
   // --- 画面リサイズ ---
   useEffect(() => {
     const handleResize = () => {
@@ -497,44 +628,18 @@ const addAnnotation = (start, end) => {
     setCurrentIndex(index);
   };
 
-  const handleMouseUp = (e) => {
+const handleMouseUp = (e) => {
     setIsPanning(false);
     setIsSettingCurrentIndex(false);
     if (isDragging && dragStart !== null && dragEnd !== null) {
       const start = Math.min(dragStart, dragEnd);
       const end = Math.max(dragStart, dragEnd);
 
-if (isDeleting) {
-  setAnnotations(prev => {
-    let next = [];
-    prev.forEach(a => {
-      if (a.end < start || a.start > end) {
-        next.push(a);
+      if (isDeleting) {
+        handleRemoveWithHistory(start, end); // ←修正
+      } else {
+        handleAddWithHistory(start, end);    // ←修正
       }
-      if (a.start < start && a.end >= start) {
-        next.push({ start: a.start, end: start - 1 });
-      }
-      if (a.end > end && a.start <= end) {
-        next.push({ start: end + 1, end: a.end });
-      }
-      // 完全削除のやつはpushしない
-    });
-
-    // === ここで「削除区間」のAPI送信 ===
-    // ※start, endはインデックス → 必ず indexToFrame で変換して送る！
-    console.log("[API送信: remove]", {
-      action: "remove",
-      range: {
-        startFrame: indexToFrame[start],
-        endFrame: indexToFrame[end],
-      }
-    });
-
-    return next.sort((a, b) => a.start - b.start);
-  });
-} else {
-  addAnnotation(start, end);
-}
       setIsDragging(false);
       setDragStart(null);
       setDragEnd(null);
@@ -733,23 +838,25 @@ useEffect(() => {
   ctx.beginPath();
   ctx.roundRect(selX, 4, selW, BAR_HEIGHT - 8, radius);
 
+ // グラデ（青→濃青→青）
   const grad = ctx.createLinearGradient(selX, 0, selX + selW, 0);
-  grad.addColorStop(0, 'rgba(37,99,235,0.18)');
-  grad.addColorStop(0.5, 'rgba(37,99,235,0.36)');
-  grad.addColorStop(1, 'rgba(37,99,235,0.18)');
+  grad.addColorStop(0, 'rgba(37,99,235,0.15)');    // #2563eb 15%
+  grad.addColorStop(0.5, 'rgba(37,99,235,0.32)');  // #2563eb 32%
+  grad.addColorStop(1, 'rgba(37,99,235,0.15)');
   ctx.fillStyle = grad;
   ctx.fill();
   ctx.lineWidth = 2;
   ctx.strokeStyle = '#2563eb';
   ctx.stroke();
 
+  // === ハンドル（白＋青枠、少し太め） ===
   const leftHandleX = selX - handleW / 2;
   const rightHandleX = selX + selW - handleW / 2;
 
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(leftHandleX, 4, handleW, handleH, 4);
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = '#aaf';
   ctx.fill();
   ctx.lineWidth = 2.2;
   ctx.strokeStyle = '#2563eb';
@@ -759,7 +866,7 @@ useEffect(() => {
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(rightHandleX, 4, handleW, handleH, 4);
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = '#aaf';
   ctx.fill();
   ctx.lineWidth = 2.2;
   ctx.strokeStyle = '#2563eb';
@@ -768,34 +875,65 @@ useEffect(() => {
 }, [canvasWidth, annotations, viewStart, scale, visibleFrames, FRAME_COUNT]);
 
   // --- JSX ---
+// ...ロジック部は全く同じ...
   return (
-    <div className="flex flex-col items-center space-y-4 p-4 select-none">
-      <div className="mb-2 w-full flex flex-col items-center">
-        <div className="p-2 bg-gray-100 rounded font-mono text-gray-700 text-xs w-full text-center">
-          現在地URL: <span className="font-bold text-blue-800">https://example.com/frame/{currentIndex ?? 0}</span>
+    <div className="flex flex-col items-center w-full min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-0 sm:p-6">
+      {/* URLバー */}
+      <div className="w-full max-w-4xl mt-4 mb-6">
+        <div className="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-xl border border-slate-600/30 rounded-xl h-12 flex items-center px-6 shadow-2xl font-mono text-sm text-slate-300 select-all relative overflow-hidden group">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+          <div className="flex items-center gap-3 relative z-10">
+            <div className="flex gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+              <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+              <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+            </div>
+            <div className="w-px h-6 bg-slate-600/50 mx-2"></div>
+            <span className="truncate text-slate-200">
+              https://example.com/frame/{indexToFrame[currentIndex] ?? ""}
+            </span>
+          </div>
         </div>
       </div>
-      <div ref={containerRef} className="w-4/5">
-        <div className="border border-gray-300 rounded shadow bg-white">
+
+      {/* タイムライン */}
+      <div ref={containerRef} className="w-full max-w-4xl relative group">
+        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-slate-600/30 rounded-t-2xl shadow-2xl relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5"></div>
           <canvas
             ref={canvasRef}
             width={canvasWidth}
             height={100}
-            className="block"
-            style={{ cursor: isPanning ? 'grabbing' : 'pointer', width: '100%', height: '100px', userSelect: 'none' }}
+            className="block rounded-t-2xl relative z-10"
+            style={{
+              cursor: isPanning ? 'grabbing' : 'pointer',
+              width: '100%',
+              height: '120px',
+              background: 'transparent',
+              userSelect: 'none'
+            }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onContextMenu={handleContextMenu}
           />
         </div>
-        <div className="mt-2 w-full">
+        
+        {/* サマリーバー */}
+        <div className="bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-xl border-x border-b border-slate-600/30 rounded-b-2xl relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 to-cyan-500/5"></div>
           <canvas
             ref={summaryBarRef}
             width={canvasWidth}
             height={BAR_HEIGHT}
-            className="block"
-            style={{ width: '100%', height: `${BAR_HEIGHT}px`, userSelect: 'none', background: '#f3f4f6', cursor: dragBarMode ? 'grabbing' : 'pointer' }}
+            className="block rounded-b-2xl relative z-10"
+            style={{
+              width: '100%',
+              height: `${BAR_HEIGHT + 8}px`,
+              background: 'transparent',
+              userSelect: 'none',
+              cursor: dragBarMode ? 'grabbing' : 'pointer'
+            }}
             onMouseDown={handleSummaryBarMouseDown}
             onMouseMove={handleSummaryBarMouseMove}
             onMouseUp={handleSummaryBarMouseUp}
@@ -803,40 +941,54 @@ useEffect(() => {
           />
         </div>
       </div>
-      <div className="flex items-center gap-4 mt-4">
-        <button
-          className="px-4 py-1 rounded bg-blue-500 text-white font-bold hover:bg-blue-600"
-          onClick={() => setIsPlaying(v => !v)}
-        >
-          {isPlaying ? '停止' : '再生'}
-        </button>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-600">スピード</span>
-          <input
-            type="range"
-            min="1"
-            max="60"
-            value={playSpeed}
-            onChange={e => setPlaySpeed(Number(e.target.value))}
-            className="accent-blue-500"
-            tabIndex={-1}
-            onKeyDown={e => e.preventDefault()}
-          />
-          <span className="text-xs font-mono w-10 text-right">{playSpeed} fps</span>
+
+      {/* 再生・速度 */}
+      <div className="flex items-center gap-8 mt-8 mb-4">
+        {/* 再生ボタン */}
+        <div className="relative group">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full blur-lg opacity-75 group-hover:opacity-100 transition-opacity duration-300"></div>
+          <button
+            className="relative w-16 h-16 flex items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-400 hover:to-purple-500 active:from-blue-600 active:to-purple-700 shadow-2xl text-white text-2xl focus:outline-none transform hover:scale-105 active:scale-95 transition-all duration-200"
+            title={isPlaying ? "Stop" : "Play"}
+            onClick={() => setIsPlaying(v => !v)}
+          >
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/20 to-transparent"></div>
+            <span className="relative z-10">
+              {isPlaying ? '⏸' : '▶'}
+            </span>
+          </button>
+        </div>
+
+        {/* スピードバー */}
+        <div className="flex items-center gap-3 bg-gradient-to-r from-slate-800/50 to-slate-700/50 backdrop-blur-xl border border-slate-600/30 rounded-xl px-6 py-3 shadow-xl">
+          <span className="text-slate-300 text-sm font-medium">Speed</span>
+          <CustomSpeedBar value={playSpeed} min={1} max={60} onChange={v => setPlaySpeed(v)} />
+          <span className="text-slate-200 text-sm font-mono font-bold min-w-8 text-right">{playSpeed}x</span>
         </div>
       </div>
-<div className="w-full max-w-md">
-  {currentIndex !== null && (
-    <span className="font-bold text-blue-600">
-      現在地: {currentIndex}
-      {indexToTimestamp[currentIndex] &&
-        <span className="ml-4 text-xs text-white">
-          （{new Date(indexToTimestamp[currentIndex] * 1000).toLocaleString()}）
-        </span>
-      }
-    </span>
-  )}
-</div>
+
+      {/* 現在地表示 */}
+      <div className="mt-4 mb-6 flex items-center justify-center w-full max-w-lg">
+        <div className="bg-gradient-to-r from-slate-800/60 to-slate-700/60 backdrop-blur-xl border border-slate-600/30 rounded-2xl px-8 py-4 shadow-2xl relative overflow-hidden group">
+          <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+          <div className="flex items-center gap-6 relative z-10">
+            <div className="text-center">
+              <div className="text-4xl font-mono font-bold text-transparent bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text select-none">
+                {currentIndex ?? "-"} / {FRAME_COUNT}
+              </div>
+              <div className="text-xs text-slate-400 mt-1 uppercase tracking-wider">Frame Position</div>
+            </div>
+            {indexToTimestamp[currentIndex] && (
+              <div className="flex flex-col items-end">
+                <div className="px-3 py-1.5 text-xs rounded-lg bg-gradient-to-r from-slate-700/80 to-slate-600/80 text-slate-300 font-mono border border-slate-500/30">
+                  {new Date(indexToTimestamp[currentIndex] * 1000).toLocaleString()}
+                </div>
+                <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider">Timestamp</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
