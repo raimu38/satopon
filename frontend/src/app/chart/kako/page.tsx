@@ -2,85 +2,18 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 
+const FRAME_COUNT = 3000;
 const MIN_SCALE = 0;
-const MAX_SCALE = 1000;
+const MAX_SCALE = 100;
 const INITIAL_SCALE = 8;
 const BAR_HEIGHT = 50;
 const LONG_PRESS_DELAY = 200; // ms
 
-
-
-// 1. 画像パス生成（ランダムなフレーム番号付き）
-function generateImagePaths(count = 100, minFrame = 100, maxFrame = 2000, baseTimestamp = 1684875600) {
-  const used = new Set();
-  const frames = [];
-  while (frames.length < count) {
-    const f = Math.floor(Math.random() * (maxFrame - minFrame + 1)) + minFrame;
-    if (!used.has(f)) {
-      frames.push(f);
-      used.add(f);
-    }
-  }
-  frames.sort((a, b) => a - b);
-  let t = baseTimestamp;
-  return frames.map(frame => {
-    const isAnomaly = Math.random() < 0.2;
-    const fractionalSec = (Math.random() * 0.999999).toFixed(6);
-    const suffix = isAnomaly ? "_anomaly" : "";
-    const p = `images/${frame}_${t}.${fractionalSec}${suffix}.jpg`;
-    t += Math.floor(Math.random() * 11) + 5;
-    return p;
-  });
-}
-
-// 2. 画像名パース
-function parseImageName(path) {
-  const fn = path.split('/').pop().replace('.jpg', '');
-  const [frameStr, timestampStr, ...rest] = fn.split('_');
-  const [timestamp, fraction] = timestampStr.split('.');
-  return {
-    frame: parseInt(frameStr, 10),
-    timestamp: parseInt(timestamp, 10),
-    isAnomaly: rest.length === 1,
-  };
-}
-
-// 3. 連続 anomaly frame → 範囲化
-function buildErrorRanges(indices) {
-  if (!indices.length) return [];
-  indices.sort((a, b) => a - b);
-  const ranges = [];
-  let start = indices[0], end = indices[0];
-  for (let i = 1; i < indices.length; i++) {
-    if (indices[i] === end + 1) end = indices[i];
-    else {
-      ranges.push({ start, end });
-      start = end = indices[i];
-    }
-  }
-  ranges.push({ start, end });
-  return ranges;
-}
-
-
-
 function Timeline() {
-
-
-  
-// 追加分（ここから）
-  const [imagePaths, setImagePaths] = useState([]);
-  const [frameToIndex, setFrameToIndex] = useState({});
-  const [indexToFrame, setIndexToFrame] = useState({});
-  const [FRAME_COUNT, setFRAME_COUNT] = useState(0);
-
-
   const canvasRef = useRef(null);
   const summaryBarRef = useRef(null);
   const containerRef = useRef(null);
 
-const [indexToTimestamp, setIndexToTimestamp] = useState({});
-// useEffect 内で setIndexToTimestamp(indexToTimestamp); 追加
   const [canvasWidth, setCanvasWidth] = useState(800);
   const [scale, setScale] = useState(INITIAL_SCALE);
   const [viewStart, setViewStart] = useState(0);
@@ -109,18 +42,21 @@ const [indexToTimestamp, setIndexToTimestamp] = useState({});
   const [isSettingCurrentIndex, setIsSettingCurrentIndex] = useState(false);
   const scrollIntervalRef = useRef(null);
 
-  const visibleFrames = FRAME_COUNT > 0 && scale > 0 && canvasWidth > 0
-    ? Math.min(FRAME_COUNT, Math.floor(canvasWidth / scale))
-    : 1;
+  const visibleFrames = Math.min(FRAME_COUNT, Math.floor(canvasWidth / scale));
+  const visibleFramesRef = useRef(visibleFrames);
+  useEffect(() => { visibleFramesRef.current = visibleFrames }, [visibleFrames]);
+  const viewStartRef = useRef(viewStart);
+  useEffect(() => { viewStartRef.current = viewStart; }, [viewStart]);
+
   // ==== 共通：インデックスを常に画面内に入れる ====
-const makeFrameVisible = (idx) => {
-  setViewStart(vs => {
-    const vis = visibleFrames; // ← これで十分
-    if (idx < vs) return idx;
-    if (idx >= vs + vis) return Math.min(FRAME_COUNT - vis, idx - vis + 1);
-    return vs;
-  });
-};
+  const makeFrameVisible = (idx) => {
+    setViewStart(vs => {
+      const vis = visibleFramesRef.current;
+      if (idx < vs) return idx;
+      if (idx >= vs + vis) return Math.min(FRAME_COUNT - vis, idx - vis + 1);
+      return vs;
+    });
+  };
   // ==== 共通：インデックス＋viewをまとめてセット ====
   const setCurrentIndexWithVisible = (idx) => {
     setCurrentIndex(() => {
@@ -128,37 +64,9 @@ const makeFrameVisible = (idx) => {
       return idx;
     });
   };
-   // --- 初回：データ生成&index割当&anomaly自動描画 ---
-  useEffect(() => {
-    const paths = generateImagePaths(1000, 100, 30000, 1684875600);
-    setImagePaths(paths);
 
-    // 全フレーム→昇順ユニーク圧縮
-    const parsed = paths.map(parseImageName);
-    const allFrames = Array.from(new Set(parsed.map(p => p.frame))).sort((a, b) => a - b);
-
-    // 圧縮 index マッピング
-  const frame2idx = {}, idx2frame = {}, idx2timestamp = {};
- allFrames.forEach((f, i) => {
-    frame2idx[f] = i;
-    idx2frame[i] = f;
-    // ★ここ追加
-    const img = parsed.find(p => p.frame === f);
-    idx2timestamp[i] = img?.timestamp ?? null;
-  });
-    setFrameToIndex(frame2idx);
-    setIndexToFrame(idx2frame);
-    setFRAME_COUNT(allFrames.length);
-setIndexToTimestamp(idx2timestamp);
-
-    // anomalyを圧縮indexへ
-    const anomalyFrames = parsed.filter(p => p.isAnomaly).map(p => frame2idx[p.frame]);
-    const initialRanges = buildErrorRanges(anomalyFrames).map(({ start, end }) => ({ start, end }));
-    setAnnotations(initialRanges);
-  }, []);
   // --- メインタイムラインの描画 ---
   useEffect(() => {
-if (!FRAME_COUNT || !canvasWidth || !scale || !visibleFrames || FRAME_COUNT <= 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -173,12 +81,11 @@ if (!FRAME_COUNT || !canvasWidth || !scale || !visibleFrames || FRAME_COUNT <= 0
       ctx.fillStyle = '#111827';
       ctx.font = '12px sans-serif';
       if (scale >= 10 || frameIndex % Math.ceil(10 / scale) === 0) {
-  ctx.fillText(frameIndex + " (" + (indexToFrame[frameIndex] ?? "") + ")", x + 4, 30);
+        ctx.fillText(frameIndex, x + 4, 30);
       }
     }
 
     annotations.forEach(({ start, end }) => {
- if (!FRAME_COUNT) return; // ガード
       if (end < viewStart || start > viewStart + visibleFrames - 1) return;
       const s = Math.max(start, viewStart);
       const e = Math.min(end, viewStart + visibleFrames - 1);
@@ -211,7 +118,7 @@ if (!FRAME_COUNT || !canvasWidth || !scale || !visibleFrames || FRAME_COUNT <= 0
       ctx.font = 'bold 16px sans-serif';
       ctx.fillText(currentIndex, x + 6, 90);
     }
-  }, [scale, annotations, currentIndex, viewStart, canvasWidth, isDragging, dragEnd, isDeleting, visibleFrames,FRAME_COUNT]);
+  }, [scale, annotations, currentIndex, viewStart, canvasWidth, isDragging, dragEnd, isDeleting, visibleFrames]);
 
   // --- 画面リサイズ ---
   useEffect(() => {
@@ -417,31 +324,23 @@ if (!FRAME_COUNT || !canvasWidth || !scale || !visibleFrames || FRAME_COUNT <= 0
     return Math.max(0, Math.min(FRAME_COUNT - 1, Math.floor(x / scale) + viewStart));
   };
 
-const addAnnotation = (start, end) => {
-  let s = Math.min(start, end);
-  let e = Math.max(start, end);
-  let newAnnotations = [];
-  annotations.forEach(a => {
-    if (e + 1 >= a.start && s - 1 <= a.end) {
-      s = Math.min(s, a.start);
-      e = Math.max(e, a.end);
-    } else {
-      newAnnotations.push(a);
-    }
-  });
-  newAnnotations.push({ start: s, end: e });
-  newAnnotations.sort((a, b) => a.start - b.start);
-  setAnnotations(newAnnotations);
+  const addAnnotation = (start, end) => {
+    let s = Math.min(start, end);
+    let e = Math.max(start, end);
+    let newAnnotations = [];
+    annotations.forEach(a => {
+      if (e + 1 >= a.start && s - 1 <= a.end) {
+        s = Math.min(s, a.start);
+        e = Math.max(e, a.end);
+      } else {
+        newAnnotations.push(a);
+      }
+    });
+    newAnnotations.push({ start: s, end: e });
+    newAnnotations.sort((a, b) => a.start - b.start);
+    setAnnotations(newAnnotations);
+  };
 
-  // ここでAPI送信用データをconsole.log（インデックスじゃなくframe番号で）
-  console.log("[API送信: add]", {
-    action: "add",
-    range: {
-      startFrame: indexToFrame[s],
-      endFrame: indexToFrame[e],
-    }
-  });
-};
   // --- メインタイムライン：マウス操作 ---
   const [isPanning, setIsPanning] = useState(false);
   const [panStartX, setPanStartX] = useState(null);
@@ -504,37 +403,25 @@ const addAnnotation = (start, end) => {
       const start = Math.min(dragStart, dragEnd);
       const end = Math.max(dragStart, dragEnd);
 
-if (isDeleting) {
-  setAnnotations(prev => {
-    let next = [];
-    prev.forEach(a => {
-      if (a.end < start || a.start > end) {
-        next.push(a);
+      if (isDeleting) {
+        setAnnotations(prev => {
+          let next = [];
+          prev.forEach(a => {
+            if (a.end < start || a.start > end) {
+              next.push(a);
+            }
+            if (a.start < start && a.end >= start) {
+              next.push({ start: a.start, end: start - 1 });
+            }
+            if (a.end > end && a.start <= end) {
+              next.push({ start: end + 1, end: a.end });
+            }
+          });
+          return next.sort((a, b) => a.start - b.start);
+        });
+      } else {
+        addAnnotation(start, end);
       }
-      if (a.start < start && a.end >= start) {
-        next.push({ start: a.start, end: start - 1 });
-      }
-      if (a.end > end && a.start <= end) {
-        next.push({ start: end + 1, end: a.end });
-      }
-      // 完全削除のやつはpushしない
-    });
-
-    // === ここで「削除区間」のAPI送信 ===
-    // ※start, endはインデックス → 必ず indexToFrame で変換して送る！
-    console.log("[API送信: remove]", {
-      action: "remove",
-      range: {
-        startFrame: indexToFrame[start],
-        endFrame: indexToFrame[end],
-      }
-    });
-
-    return next.sort((a, b) => a.start - b.start);
-  });
-} else {
-  addAnnotation(start, end);
-}
       setIsDragging(false);
       setDragStart(null);
       setDragEnd(null);
@@ -542,41 +429,14 @@ if (isDeleting) {
     }
   };
 
- const handleContextMenu = (e) => {
+  const handleContextMenu = (e) => {
     e.preventDefault();
-    const idx = getFrameIndexAtX(e.clientX);
-    let newA = { start: idx, end: idx };
-    const merged = [];
-    for (let a of annotations) {
-      if (!(newA.end < a.start - 1 || newA.start > a.end + 1)) {
-        newA.start = Math.min(newA.start, a.start);
-        newA.end   = Math.max(newA.end,   a.end);
-      } else {
-        merged.push(a);
-      }
-    }
-    merged.push(newA);
-    // ソート＆クリーン
-    const sorted = merged.sort((a,b)=>a.start-b.start);
-    const clean = [];
-    for (let r of sorted) {
-      if (!clean.length) clean.push(r)
-      else {
-        const last = clean[clean.length - 1];
-        if (r.start <= last.end + 1) last.end = Math.max(last.end, r.end)
-        else clean.push(r)
-      }
-    }
-    setAnnotations(clean);
-    // 追加時のログ
-    //console.log("🟥 追加/マージ後のannotations", clean.map(({start,end})=>({start,end,originalStart:indexToFrame[start],originalEnd:indexToFrame[end]})));
+    const index = getFrameIndexAtX(e.clientX);
+    setCurrentIndexWithVisible(index);
   };
 
   const handleWheel = (e) => {
-
     e.preventDefault();
-
- if (FRAME_COUNT <= 1 || canvasWidth <= 1 || scale <= 0) return;
     const { left } = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - left;
     const mouseFrame = Math.floor(x / scale) + viewStart;
@@ -593,20 +453,8 @@ if (isDeleting) {
     setViewStart(newViewStart);
   };
 
-useEffect(() => {
-  const canvas = canvasRef.current;
-  if (!canvas) return;
-
-  const handler = (e) => handleWheel(e);
-
-  canvas.addEventListener('wheel', handler, { passive: false });
-  return () => {
-    canvas.removeEventListener('wheel', handler);
-  };
-}, [canvasRef.current, handleWheel]);
   // --- サマリーバーの操作 ---
   const handleSummaryBarMouseDown = (e) => {
- if (!FRAME_COUNT) return; 
     const rect = summaryBarRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const selX = (viewStart / FRAME_COUNT) * canvasWidth;
@@ -708,64 +556,62 @@ useEffect(() => {
   };
 
   // --- サマリーバー描画 ---
-useEffect(() => {
-  if (!FRAME_COUNT || !canvasWidth || !scale || !visibleFrames || FRAME_COUNT <= 0) return;
-  const canvas = summaryBarRef.current;
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvasWidth, BAR_HEIGHT);
+  useEffect(() => {
+    const canvas = summaryBarRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvasWidth, BAR_HEIGHT);
 
-  annotations.forEach(({ start, end }) => {
-    if (!FRAME_COUNT) return; // 分母ガード
-    const x = FRAME_COUNT > 0 ? (start / FRAME_COUNT) * canvasWidth : 0;
-    const w = FRAME_COUNT > 0 ? ((end - start + 1) / FRAME_COUNT) * canvasWidth : 0;
-    ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
-    ctx.fillRect(x, 6, w, BAR_HEIGHT - 12);
-  });
+    annotations.forEach(({ start, end }) => {
+      const x = (start / FRAME_COUNT) * canvasWidth;
+      const w = ((end - start + 1) / FRAME_COUNT) * canvasWidth;
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+      ctx.fillRect(x, 6, w, BAR_HEIGHT - 12);
+    });
 
-  const handleW = 5, handleH = BAR_HEIGHT - 8;
-  const minSelW = 4;
-  let selW = FRAME_COUNT > 0 ? (visibleFrames / FRAME_COUNT) * canvasWidth - handleW : minSelW;
-  if (selW < minSelW) selW = minSelW;
-  const selX = FRAME_COUNT > 0 ? (viewStart / FRAME_COUNT) * canvasWidth + handleW / 2 : 0;
-  const radius = 1;
+    const handleW = 5, handleH = BAR_HEIGHT - 8;
+    const minSelW = 4;
+    let selW = (visibleFrames / FRAME_COUNT) * canvasWidth - handleW;
+    if (selW < minSelW) selW = minSelW;
+    const selX = (viewStart / FRAME_COUNT) * canvasWidth + handleW / 2;
+    const radius = 1;
 
-  ctx.beginPath();
-  ctx.roundRect(selX, 4, selW, BAR_HEIGHT - 8, radius);
+    ctx.beginPath();
+    ctx.roundRect(selX, 4, selW, BAR_HEIGHT - 8, radius);
 
-  const grad = ctx.createLinearGradient(selX, 0, selX + selW, 0);
-  grad.addColorStop(0, 'rgba(37,99,235,0.18)');
-  grad.addColorStop(0.5, 'rgba(37,99,235,0.36)');
-  grad.addColorStop(1, 'rgba(37,99,235,0.18)');
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#2563eb';
-  ctx.stroke();
+    const grad = ctx.createLinearGradient(selX, 0, selX + selW, 0);
+    grad.addColorStop(0, 'rgba(37,99,235,0.18)');
+    grad.addColorStop(0.5, 'rgba(37,99,235,0.36)');
+    grad.addColorStop(1, 'rgba(37,99,235,0.18)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#2563eb';
+    ctx.stroke();
 
-  const leftHandleX = selX - handleW / 2;
-  const rightHandleX = selX + selW - handleW / 2;
+    const leftHandleX = selX - handleW / 2;
+    const rightHandleX = selX + selW - handleW / 2;
 
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(leftHandleX, 4, handleW, handleH, 4);
-  ctx.fillStyle = '#fff';
-  ctx.fill();
-  ctx.lineWidth = 2.2;
-  ctx.strokeStyle = '#2563eb';
-  ctx.stroke();
-  ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(leftHandleX, 4, handleW, handleH, 4);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = '#2563eb';
+    ctx.stroke();
+    ctx.restore();
 
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(rightHandleX, 4, handleW, handleH, 4);
-  ctx.fillStyle = '#fff';
-  ctx.fill();
-  ctx.lineWidth = 2.2;
-  ctx.strokeStyle = '#2563eb';
-  ctx.stroke();
-  ctx.restore();
-}, [canvasWidth, annotations, viewStart, scale, visibleFrames, FRAME_COUNT]);
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(rightHandleX, 4, handleW, handleH, 4);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = '#2563eb';
+    ctx.stroke();
+    ctx.restore();
+  }, [canvasWidth, annotations, viewStart, scale, visibleFrames]);
 
   // --- JSX ---
   return (
@@ -786,6 +632,7 @@ useEffect(() => {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onWheel={handleWheel}
             onContextMenu={handleContextMenu}
           />
         </div>
@@ -825,18 +672,11 @@ useEffect(() => {
           <span className="text-xs font-mono w-10 text-right">{playSpeed} fps</span>
         </div>
       </div>
-<div className="w-full max-w-md">
-  {currentIndex !== null && (
-    <span className="font-bold text-blue-600">
-      現在地: {currentIndex}
-      {indexToTimestamp[currentIndex] &&
-        <span className="ml-4 text-xs text-white">
-          （{new Date(indexToTimestamp[currentIndex] * 1000).toLocaleString()}）
-        </span>
-      }
-    </span>
-  )}
-</div>
+      <div className="w-full max-w-md">
+        {currentIndex !== null && (
+          <span className="font-bold text-blue-600">現在地: {currentIndex}</span>
+        )}
+      </div>
     </div>
   );
 }
