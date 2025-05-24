@@ -25,7 +25,7 @@ function generateImagePaths(count = 100, minFrame = 100, maxFrame = 2000, baseTi
   frames.sort((a, b) => a - b);
   let t = baseTimestamp;
   return frames.map(frame => {
-    const isAnomaly = Math.random() < 0.2;
+    const isAnomaly = Math.random() < 0.02;
     const fractionalSec = (Math.random() * 0.999999).toFixed(6);
     const suffix = isAnomaly ? "_anomaly" : "";
     const p = `images/${frame}_${t}.${fractionalSec}${suffix}.jpg`;
@@ -160,7 +160,7 @@ const makeFrameVisible = (idx) => {
   };
    // --- 初回：データ生成&index割当&anomaly自動描画 ---
   useEffect(() => {
-    const paths = generateImagePaths(1000, 100, 30000, 1684875600);
+    const paths = generateImagePaths(10000, 100, 30000, 1684875600);
     setImagePaths(paths);
 
     // 全フレーム→昇順ユニーク圧縮
@@ -271,26 +271,32 @@ useEffect(() => {
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, canvasWidth, 100);
 
-  // --- フレームバー（ダークグレー寄せ・やや陰影） ---
+  // --- フレームバー ---
   for (let i = 0; i < visibleFrames; i++) {
     const frameIndex = viewStart + i;
     if (frameIndex >= FRAME_COUNT) continue;
     const x = i * scale;
-
-    // バーのグラデ or 単色
     const barGrad = ctx.createLinearGradient(x, 0, x, 100);
     barGrad.addColorStop(0, '#313a4d');
     barGrad.addColorStop(1, '#232946');
     ctx.fillStyle = barGrad;
     ctx.fillRect(x, 8, scale - 2, 84);
 
-    // バーの境界（ブルーグレー系）
-    ctx.strokeStyle = 'rgba(100, 116, 139, 0.11)';
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.0)';
     ctx.lineWidth = 1;
     ctx.strokeRect(x, 8, scale - 2, 84);
+
+    // --- フレーム番号（コメントアウト） ---
+    /*
+    if (scale >= 10 || frameIndex % Math.ceil(10 / scale) === 0) {
+      ctx.fillStyle = 'rgba(180, 195, 220, 0.45)';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillText(frameIndex + " (" + (indexToFrame[frameIndex] ?? "") + ")", x + 6, 28);
+    }
+    */
   }
 
-  // --- アノテーション（やや薄赤の透過） ---
+  // --- アノテーション ---
   annotations.forEach(({ start, end }) => {
     if (!FRAME_COUNT) return;
     if (end < viewStart || start > viewStart + visibleFrames - 1) return;
@@ -302,19 +308,19 @@ useEffect(() => {
     ctx.fillRect(x, 8, w, 84);
   });
 
-  // --- ドラッグ範囲（青/黄色で薄く表示、削除は黄） ---
+  // --- ドラッグ範囲 ---
   if (isDragging && dragStart !== null && dragEnd !== null) {
     const s = Math.max(Math.min(dragStart, dragEnd), viewStart);
     const e = Math.min(Math.max(dragStart, dragEnd), viewStart + visibleFrames - 1);
     const x = (s - viewStart) * scale;
     const w = (e - s + 1) * scale;
     ctx.fillStyle = isDeleting
-      ? 'rgba(251, 191, 36, 0.25)' // 薄黄
-      : 'rgba(59, 130, 246, 0.18)'; // #3b82f6青 薄め
+      ? 'rgba(251, 191, 36, 0.25)'
+      : 'rgba(59, 130, 246, 0.18)';
     ctx.fillRect(x, 8, w, 84);
   }
 
-  // --- 現在地インジケータ（ブルーでシャドウ、ドットも） ---
+  // --- 現在地インジケータ：青い棒だけ ---
   if (currentIndex !== null && currentIndex >= viewStart && currentIndex < viewStart + visibleFrames) {
     const x = (currentIndex - viewStart) * scale + scale / 2;
     ctx.save();
@@ -323,26 +329,27 @@ useEffect(() => {
     ctx.beginPath();
     ctx.moveTo(x, 8);
     ctx.lineTo(x, 92);
-    ctx.strokeStyle = '#60a5fa';
+    ctx.strokeStyle = '#58f';
     ctx.lineWidth = 3;
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // インジケータドット
-    ctx.beginPath();
-    ctx.arc(x, 50, 6, 0, Math.PI * 2);
-    const dotGrad = ctx.createRadialGradient(x, 50, 0, x, 50, 6);
-    dotGrad.addColorStop(0, '#3b82f6');
-    dotGrad.addColorStop(1, '#1e293b');
-    ctx.fillStyle = dotGrad;
-    ctx.globalAlpha = 0.88;
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    // --- 丸い玉：不要なので描画しない ---
+    // ctx.beginPath();
+    // ctx.arc(x, 50, 6, 0, Math.PI * 2);
+    // ...描画省略...
+
+    // --- インジケータ番号（コメントアウト） ---
+    /*
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText(currentIndex, x + 8, 82);
+    */
     ctx.restore();
   }
 }, [
   scale, annotations, currentIndex, viewStart, canvasWidth, isDragging, dragEnd,
-  isDeleting, visibleFrames, FRAME_COUNT
+  isDeleting, visibleFrames, FRAME_COUNT, dragStart, indexToFrame
 ]);
   // --- 画面リサイズ ---
   useEffect(() => {
@@ -840,12 +847,12 @@ useEffect(() => {
 
  // グラデ（青→濃青→青）
   const grad = ctx.createLinearGradient(selX, 0, selX + selW, 0);
-  grad.addColorStop(0, 'rgba(37,99,235,0.15)');    // #2563eb 15%
-  grad.addColorStop(0.5, 'rgba(37,99,235,0.32)');  // #2563eb 32%
-  grad.addColorStop(1, 'rgba(37,99,235,0.15)');
+  grad.addColorStop(0, 'rgba(37,99,235,0.01)');    // #2563eb 15%
+  grad.addColorStop(0.5, 'rgba(37,99,235,0.05)');  // #2563eb 32%
+  grad.addColorStop(1, 'rgba(37,99,235,0.01)');
   ctx.fillStyle = grad;
   ctx.fill();
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1;
   ctx.strokeStyle = '#2563eb';
   ctx.stroke();
 
@@ -856,9 +863,9 @@ useEffect(() => {
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(leftHandleX, 4, handleW, handleH, 4);
-  ctx.fillStyle = '#aaf';
+  ctx.fillStyle = '#58f';
   ctx.fill();
-  ctx.lineWidth = 2.2;
+  ctx.lineWidth = 2;
   ctx.strokeStyle = '#2563eb';
   ctx.stroke();
   ctx.restore();
@@ -866,9 +873,9 @@ useEffect(() => {
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(rightHandleX, 4, handleW, handleH, 4);
-  ctx.fillStyle = '#aaf';
+  ctx.fillStyle = '#58e';
   ctx.fill();
-  ctx.lineWidth = 2.2;
+  ctx.lineWidth = 2;
   ctx.strokeStyle = '#2563eb';
   ctx.stroke();
   ctx.restore();
@@ -879,23 +886,65 @@ useEffect(() => {
   return (
     <div className="flex flex-col items-center w-full min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-0 sm:p-6">
       {/* URLバー */}
-      <div className="w-full max-w-4xl mt-4 mb-6">
-        <div className="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-xl border border-slate-600/30 rounded-xl h-12 flex items-center px-6 shadow-2xl font-mono text-sm text-slate-300 select-all relative overflow-hidden group">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-          <div className="flex items-center gap-3 relative z-10">
-            <div className="flex gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
-              <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
-              <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
-            </div>
-            <div className="w-px h-6 bg-slate-600/50 mx-2"></div>
-            <span className="truncate text-slate-200">
-              https://example.com/frame/{indexToFrame[currentIndex] ?? ""}
-            </span>
-          </div>
-        </div>
+<div className="w-full max-w-4xl mt-2 mb-3 mx-auto">
+  <div className="flex bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-xl border border-slate-600/30 rounded-xl shadow-2xl overflow-hidden group">
+    
+    {/* 左側：URL + 実画像（縦並び） */}
+    <div className="flex flex-col w-full min-w-sm border-r border-slate-600/30">
+      
+      {/* URL 表示（上部） */}
+      <div className="h-[38px] flex items-center px-4 bg-slate-900/70 text-slate-300 font-mono text-sm border-b border-slate-600/30">
+        <span className="truncate">
+          https://example.com/frame/{indexToFrame[currentIndex] ?? ""}.jpg
+        </span>
       </div>
 
+      {/* 実画像（下部） */}
+      <div className="h-[340px] bg-black">
+        <img
+          src={`https://example.com/frame/${indexToFrame[currentIndex] ?? ""}.jpg`}
+          alt="Frame preview"
+          className="w-full h-full object-cover"
+        />
+      </div>
+    </div>
+
+{/* 右側：アノマリー見出し + 一覧 */}
+<div className="flex flex-col min-w-[10px] max-w-[180px] h-[378px] border-l border-slate-700/40">
+      
+      {/* アノマリータイトル固定バー */}
+      <div className="h-[38px] flex items-center px-3 bg-slate-900/70 border-b border-slate-600/30">
+        <span className="text-xs text-slate-400 font-bold tracking-wide">ANOMALIES</span>
+      </div>
+
+      {/* 一覧（スクロール可能） */}
+<div className="flex-1 overflow-y-auto no-scrollbar bg-slate-800/50 py-3 px-2 h-[340px]">
+        <div className="flex flex-col gap-1">
+          {annotations.map(({ start, end }, i) => {
+            const label = start === end
+              ? (indexToFrame[start] ?? start)
+              : `${indexToFrame[start] ?? start}-${indexToFrame[end] ?? end}`;
+            const isActive = (currentIndex >= start && currentIndex <= end);
+
+            return (
+              <button
+                key={i}
+                className={`w-full text-left px-3 py-1.5 rounded-lg font-mono text-[13px] transition-all duration-150
+                  ${isActive
+                    ? "bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-semibold shadow-md"
+                    : "bg-slate-700/40 text-slate-200 hover:bg-slate-700/70"}
+                `}
+                onClick={() => setCurrentIndex(start)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
       {/* タイムライン */}
       <div ref={containerRef} className="w-full max-w-4xl relative group">
         <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-slate-600/30 rounded-t-2xl shadow-2xl relative overflow-hidden">
@@ -903,12 +952,12 @@ useEffect(() => {
           <canvas
             ref={canvasRef}
             width={canvasWidth}
-            height={100}
+            height={60}
             className="block rounded-t-2xl relative z-10"
             style={{
               cursor: isPanning ? 'grabbing' : 'pointer',
               width: '100%',
-              height: '120px',
+              height: '60px',
               background: 'transparent',
               userSelect: 'none'
             }}
@@ -942,53 +991,59 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* 再生・速度 */}
-      <div className="flex items-center gap-8 mt-8 mb-4">
-        {/* 再生ボタン */}
-        <div className="relative group">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full blur-lg opacity-75 group-hover:opacity-100 transition-opacity duration-300"></div>
-          <button
-            className="relative w-16 h-16 flex items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-400 hover:to-purple-500 active:from-blue-600 active:to-purple-700 shadow-2xl text-white text-2xl focus:outline-none transform hover:scale-105 active:scale-95 transition-all duration-200"
-            title={isPlaying ? "Stop" : "Play"}
-            onClick={() => setIsPlaying(v => !v)}
-          >
-            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/20 to-transparent"></div>
-            <span className="relative z-10">
-              {isPlaying ? '⏸' : '▶'}
-            </span>
-          </button>
-        </div>
+ {/* 再生・速度・現在地（横並び！） */}
+<div className="flex flex-col gap-2 sm:flex-row sm:gap-8 items-center justify-between mt-3 mb-4 w-full max-w-4xl">
 
-        {/* スピードバー */}
-        <div className="flex items-center gap-3 bg-gradient-to-r from-slate-800/50 to-slate-700/50 backdrop-blur-xl border border-slate-600/30 rounded-xl px-6 py-3 shadow-xl">
-          <span className="text-slate-300 text-sm font-medium">Speed</span>
-          <CustomSpeedBar value={playSpeed} min={1} max={60} onChange={v => setPlaySpeed(v)} />
-          <span className="text-slate-200 text-sm font-mono font-bold min-w-8 text-right">{playSpeed}x</span>
-        </div>
-      </div>
+{/* 現在地表示＋タイムスタンプ（縦配置・幅固定） */}
+<div className="flex flex-col items-center justify-center w-[220px] h-[65px]  bg-gradient-to-r from-slate-800/60 to-slate-700/60 backdrop-blur-xl border border-slate-600/30 rounded-2xl px-4 py-2 shadow-xl relative overflow-hidden group">
+  {/* 背景ホバーエフェクト */}
+  <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
-      {/* 現在地表示 */}
-      <div className="mt-4 mb-6 flex items-center justify-center w-full max-w-lg">
-        <div className="bg-gradient-to-r from-slate-800/60 to-slate-700/60 backdrop-blur-xl border border-slate-600/30 rounded-2xl px-8 py-4 shadow-2xl relative overflow-hidden group">
-          <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-          <div className="flex items-center gap-6 relative z-10">
-            <div className="text-center">
-              <div className="text-4xl font-mono font-bold text-transparent bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text select-none">
-                {currentIndex ?? "-"} / {FRAME_COUNT}
-              </div>
-              <div className="text-xs text-slate-400 mt-1 uppercase tracking-wider">Frame Position</div>
-            </div>
-            {indexToTimestamp[currentIndex] && (
-              <div className="flex flex-col items-end">
-                <div className="px-3 py-1.5 text-xs rounded-lg bg-gradient-to-r from-slate-700/80 to-slate-600/80 text-slate-300 font-mono border border-slate-500/30">
-                  {new Date(indexToTimestamp[currentIndex] * 1000).toLocaleString()}
-                </div>
-                <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider">Timestamp</div>
-              </div>
-            )}
-          </div>
-        </div>
+  {/* 中身（縦並び） */}
+  <div className="flex flex-col items-center space-y-1 relative z-10 text-slate-300 font-mono text-sm w-full">
+    
+    {/* Frame 表示（中央揃え・固定幅） */}
+    <div className="flex items-baseline justify-center space-x-1 w-full">
+      <span className="text-base font-semibold text-slate-300 tabular-nums">
+        {currentIndex ?? "-"}
+      </span>
+      <span className="text-xs text-slate-500 opacity-80">
+        / {FRAME_COUNT}
+      </span>
+    </div>
+
+    {/* Timestamp 表示（はみ出し防止＆省略） */}
+    {indexToTimestamp[currentIndex] && (
+      <div className="px-2 py-0.5 text-xs rounded bg-slate-700/70 border border-slate-500/30 truncate w-full text-center">
+        {new Date(indexToTimestamp[currentIndex] * 1000).toLocaleString()}
       </div>
+    )}
+  </div>
+</div>
+{/* 再生ボタン（青系） */}
+<div className="relative group flex-shrink-0">
+  {/* グロー背景（青系に変更） */}
+  <div className="absolute inset-0 bg-gradient-to-r from-sky-500/30 to-blue-500/30 rounded-full blur-md opacity-60 group-hover:opacity-80 transition-opacity duration-300"></div>
+
+  <button
+    className="relative w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:from-blue-700 active:to-blue-800 shadow-lg text-white text-xl focus:outline-none transform hover:scale-105 active:scale-95 transition-all duration-200"
+    title={isPlaying ? "Stop" : "Play"}
+    onClick={() => setIsPlaying(v => !v)}
+  >
+    {/* 内部光（白系の艶） */}
+    <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/10 to-transparent"></div>
+    <span className="relative z-10">
+      {isPlaying ? '⏸' : '▶'}
+    </span>
+  </button>
+</div>
+
+    {/* スピードバー */}
+    <div className="flex items-center h-[65px]  bg-gradient-to-r from-slate-800/50 to-slate-700/50 backdrop-blur-xl border border-slate-600/30 rounded-xl  py-2 shadow-xl ">
+      <CustomSpeedBar value={playSpeed} min={1} max={20} onChange={v => setPlaySpeed(v)} />
+    </div>
+
+  </div>
     </div>
   );
 }

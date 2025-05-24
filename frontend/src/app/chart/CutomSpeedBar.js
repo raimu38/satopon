@@ -10,44 +10,31 @@ export default function SpeedMeterBar({
   max = 30,
   onChange,
   width = 280,
-  height = 56,
-  color = "#3b82f6", // 青系
-  bgColor = "#e5e7eb", // track
+  height = 40,
+  bgColor = "#e5e7eb",
 }) {
   const sliderRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const [animatedValue, setAnimatedValue] = useState(value);
 
-  // アニメーション
   useEffect(() => {
     const diff = value - animatedValue;
-    if (Math.abs(diff) > 0.3) {
+    if (Math.abs(diff) > 0.15) {
       const timer = setTimeout(() => {
-        setAnimatedValue(prev => prev + diff * 0.15);
-      }, 16);
+        setAnimatedValue(prev => prev + diff * 0.32);
+      }, 12);
       return () => clearTimeout(timer);
     } else {
       setAnimatedValue(value);
     }
   }, [value, animatedValue]);
 
-  const trackPadding = 32;
+  const trackPadding = 28;
   const trackWidth = width - trackPadding * 2;
   const percent = (animatedValue - min) / (max - min);
   const knobPosition = trackPadding + percent * trackWidth;
 
-  // 目盛り（5個、端と中央だけラベルつき）
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((p, i) => ({
-    x: trackPadding + p * trackWidth,
-    label: [0, 2, 4].includes(i)
-      ? Math.round(min + p * (max - min))
-      : null,
-  }));
-
-  // グラデ色
-  const gradientId = "speedMeterGradient";
-  const barColorA = color;
-  const barColorB = "#60a5fa"; // 薄め青
+  const gradientId = "fixedBlueGradient";
 
   const handleChange = (e) => {
     if (!sliderRef.current) return;
@@ -77,6 +64,8 @@ export default function SpeedMeterBar({
     window.addEventListener("touchend", handleUp);
   };
 
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+
   return (
     <div style={{ width, userSelect: "none" }}>
       <svg
@@ -89,80 +78,104 @@ export default function SpeedMeterBar({
       >
         <defs>
           <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor={barColorA} />
-            <stop offset="100%" stopColor={barColorB} />
+            <stop offset="0%" stopColor="#06b6d4" />
+            <stop offset="100%" stopColor="#3b82f6" />
           </linearGradient>
+
+<linearGradient id="knobGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+  <stop offset="0%" stopColor="#f8fafc" />
+  <stop offset="100%" stopColor="#e2e8f0" />
+</linearGradient>
         </defs>
+
         {/* トラック背景 */}
         <rect
           x={trackPadding}
-          y={height / 2 - 8}
+          y={height / 2 - 6}
           width={trackWidth}
-          height={16}
-          rx={8}
+          height={12}
+          rx={6}
           fill={bgColor}
         />
         {/* アクティブバー */}
         <rect
           x={trackPadding}
-          y={height / 2 - 8}
+          y={height / 2 - 6}
           width={percent * trackWidth}
-          height={16}
-          rx={8}
+          height={12}
+          rx={6}
           fill={`url(#${gradientId})`}
         />
-        {/* 目盛り */}
-        {ticks.map((tick, i) => (
-          <g key={i}>
+
+        {/* メモリ棒（ticks） */}
+        {ticks.map((p, i) => {
+          const x = trackPadding + p * trackWidth;
+          const isCenter = i === 2;
+          return (
             <rect
-              x={tick.x - 1}
-              y={height / 2 - 14}
-              width={2}
-              height={28}
-              rx={1}
-              fill={i === 2 ? "#2563eb" : "#94a3b8"}
-              opacity={i === 2 ? 0.9 : 0.6}
+              key={i}
+              x={x - 0.5}
+              y={height / 2 - 10}
+              width={1}
+              height={20}
+              fill={isCenter ? "#64748b" : "#94a3b8"}
+              opacity={isCenter ? 0.8 : 0.5}
+              rx={0.5}
             />
-            {tick.label !== null && (
-              <text
-                x={tick.x}
-                y={height / 2 + 26}
-                textAnchor="middle"
-                fontSize="12"
-                fill="#64748b"
-                fontFamily="monospace"
-              >
-                {tick.label}
-              </text>
-            )}
-          </g>
-        ))}
-        {/* ノブ */}
-        <circle
-          cx={knobPosition}
-          cy={height / 2}
-          r={13}
-          fill="#fff"
-          stroke={color}
-          strokeWidth={3}
-          style={{
-            filter: isDragging ? "drop-shadow(0 0 8px #3b82f666)" : "",
-            transition: "filter 0.12s",
-          }}
-        />
-        {/* 値 */}
-        <text
-          x={knobPosition}
-          y={height / 2 + 5}
-          textAnchor="middle"
-          fontSize="15"
-          fontFamily="monospace"
-          fill={color}
-          fontWeight="bold"
-          opacity={0.85}
-        >
-          {Math.round(animatedValue)}
-        </text>
+          );
+        })}
+
+{/* ノブ */}
+<g>
+  {/* 影 */}
+  <circle
+    cx={knobPosition}
+    cy={height / 2}
+    r={10}
+    fill="rgba(0,0,0,0.15)"
+  />
+  {/* 本体（白ベースにグラデ） */}
+  <circle
+    cx={knobPosition}
+    cy={height / 2}
+    r={9}
+    fill="url(#knobGradient)"
+    stroke="#3b82f6"
+    strokeWidth={2}
+    style={{
+      filter: isDragging ? "drop-shadow(0 0 6px #3b82f666)" : "",
+      transition: "filter 0.12s",
+    }}
+  />
+  {/* 中心グリップ点 */}
+  <circle
+    cx={knobPosition}
+    cy={height / 2}
+    r={2}
+    fill="#3b82f6"
+    opacity="0.6"
+  />
+</g>
+        {/* ラベル */}
+        {[0, 0.5, 1].map((p, i) => {
+          const label = Math.round(min + p * (max - min));
+          const x = trackPadding + p * trackWidth;
+          return (
+            <text
+              key={i}
+              x={x}
+              y={height  }
+              textAnchor="middle"
+              fontSize="9"
+              fill="#94a3b8"
+              opacity="0.7"
+              fontFamily="monospace"
+              
+            >
+              {label}
+            </text>
+          );
+        })}
       </svg>
     </div>
   );
