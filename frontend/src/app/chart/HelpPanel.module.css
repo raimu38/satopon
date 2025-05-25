@@ -1,0 +1,28 @@
+
+@keyframes slidein-modal {
+  from {
+    opacity: 0;
+    transform: translateY(-40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes slideout-modal {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-40px);
+  }
+}
+
+.helpPanelEnter {
+  animation: slidein-modal 0.22s cubic-bezier(.4,0,.2,1);
+}
+.helpPanelExit {
+  animation: slideout-modal 0.22s cubic-bezier(.4,0,.2,1);
+}
