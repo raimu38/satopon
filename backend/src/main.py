@@ -1,39 +1,28 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.notify import send_ntfy_notification
+from motor.motor_asyncio import AsyncIOMotorClient
+from src.api import user, room, misc
+from .config import MONGODB_URI, MONGO_DB_NAME
+from src.db import get_db
 
+
+# FastAPI app設定など
 app = FastAPI()
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 開発中のみ許可、必要に応じて絞る
+    allow_origins=["*"],  # 必要に応じて制限
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-connections = set()
+import os
+print("AUTH_PROVIDER:", os.getenv("AUTH_PROVIDER"))
+app.include_router(user.router, prefix="/api", tags=["user"])
+app.include_router(room.router, prefix="/api", tags=["room"])
+app.include_router(misc.router, prefix="/api", tags=["misc"])
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    connections.add(websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            await websocket.send_text(f"Echo: {data}")
-    except WebSocketDisconnect:
-        connections.remove(websocket)
-
-@app.post("/notify")
-async def notify_all():
-    for conn in connections:
-        await conn.send_text("🔔 新しい通知があります")
-    return {"status": "ok"}
-
-
-@app.post("/notify1")
-async def trigger_notification():
-    await send_ntfy_notification("🔔 新しいイベントが発生しました！")
-    return {"status": "sent"}
+# WebSocketやイベントも後述
 

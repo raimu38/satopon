@@ -1,0 +1,757 @@
+--- FILE: ./__init__.py ---
+
+
+
+--- FILE: ./api/__init__.py ---
+
+
+
+--- FILE: ./api/misc.py ---
+
+from fastapi import APIRouter, Depends, HTTPException
+from src.services.misc_service import PointService, SettlementService
+from src.repositories.misc_repo import PointRecordRepository, SettlementRepository
+from src.db import get_db
+from src.schemas import PointRegisterRequest, SettlementCreate
+from typing import List
+from src.utils import get_current_uid
+
+router = APIRouter()
+
+def get_point_service(db=Depends(get_db)):
+    return PointService(PointRecordRepository(db))
+
+def get_settlement_service(db=Depends(get_db)):
+    return SettlementService(SettlementRepository(db))
+
+@router.post("/rooms/{room_id}/points")
+async def add_points(
+    room_id: str,
+    data: PointRegisterRequest,
+    current_uid: str = Depends(get_current_uid),
+    service: PointService = Depends(get_point_service),
+):
+    # data.points, data.approved_byはクライアント側で「uid」送信前提
+    await service.add_points(room_id, data.points, data.approved_by)
+    return {"ok": True}
+
+@router.get("/rooms/{room_id}/points/history")
+async def point_history(room_id: str, service: PointService = Depends(get_point_service)):
+    return await service.history(room_id)
+
+@router.delete("/rooms/{room_id}/points/{round_id}")
+async def delete_point_record(
+    room_id: str,
+    round_id: str,
+    current_uid: str = Depends(get_current_uid),
+    service: PointService = Depends(get_point_service),
+):
+    await service.logical_delete(room_id, round_id)
+    return {"ok": True}
+
+@router.post("/rooms/{room_id}/settle")
+async def settle(
+    room_id: str,
+    data: SettlementCreate,
+    current_uid: str = Depends(get_current_uid),
+    service: SettlementService = Depends(get_settlement_service),
+):
+    # data.to_uidもクライアントで「uid」送信前提
+    await service.create({
+        "room_id": room_id,
+        "from_uid": current_uid,
+        "to_uid": data.to_uid,
+        "amount": data.amount,
+    })
+    return {"ok": True}
+
+@router.post("/rooms/{room_id}/settle/{settlement_id}/approve")
+async def approve_settlement(
+    room_id: str,
+    settlement_id: str,
+    current_uid: str = Depends(get_current_uid),
+    service: SettlementService = Depends(get_settlement_service),
+):
+    await service.approve(settlement_id)
+    return {"ok": True}
+
+@router.get("/rooms/{room_id}/settle/history")
+async def settlement_history(room_id: str, service: SettlementService = Depends(get_settlement_service)):
+    return await service.history(room_id)
+
+
+--- FILE: ./api/room.py ---
+
+from fastapi import APIRouter, Depends, HTTPException
+from src.services.room_service import RoomService
+from src.repositories.room_repo import RoomRepository
+from src.repositories.misc_repo import PointRecordRepository
+from src.db import get_db
+from src.schemas import RoomCreate, RoomResponse, RoomUpdate
+from typing import List
+from src.utils import get_current_uid
+
+router = APIRouter()
+
+def get_room_service(db=Depends(get_db)):
+    return RoomService(RoomRepository(db), PointRecordRepository(db))
+
+@router.post("/rooms", response_model=dict)
+async def create_room(
+    data: RoomCreate,
+    current_uid: str = Depends(get_current_uid),
+    service: RoomService = Depends(get_room_service),
+):
+    room_id = await service.create_room(current_uid, data.dict())
+    return {"room_id": room_id}
+
+@router.get("/rooms", response_model=List[RoomResponse])
+async def list_rooms(
+    current_uid: str = Depends(get_current_uid),
+    service: RoomService = Depends(get_room_service),
+):
+    return await service.list_user_rooms(current_uid)
+
+@router.get("/rooms/{room_id}", response_model=RoomResponse)
+async def get_room(room_id: str, service: RoomService = Depends(get_room_service)):
+    return await service.get_room(room_id)
+
+@router.put("/rooms/{room_id}")
+async def update_room(
+    room_id: str,
+    updates: RoomUpdate,
+    current_uid: str = Depends(get_current_uid),
+    service: RoomService = Depends(get_room_service),
+):
+    await service.update_room(room_id, updates.dict(exclude_unset=True), current_uid)
+    return {"ok": True}
+
+@router.delete("/rooms/{room_id}")
+async def delete_room(
+    room_id: str,
+    current_uid: str = Depends(get_current_uid),
+    service: RoomService = Depends(get_room_service),
+):
+    await service.delete_room(room_id, current_uid)
+    return {"ok": True}
+
+
+--- FILE: ./api/user.py ---
+
+from fastapi import APIRouter, Depends, HTTPException
+from src.services.user_service import UserService
+from src.repositories.user_repo import UserRepository
+from src.db import get_db
+from src.schemas import UserCreate, UserUpdate, UserResponse
+from typing import List
+from src.utils import get_current_uid   # ←ここに修正
+
+router = APIRouter()
+
+def get_user_service(db=Depends(get_db)):
+    return UserService(UserRepository(db))
+
+@router.post("/users", response_model=UserResponse)
+async def create_user(
+    user: UserCreate,
+    current_uid: str = Depends(get_current_uid),   # ← ここ
+    service: UserService = Depends(get_user_service)
+):
+    user_obj = await service.create_user(user.dict(), current_uid)
+    return user_obj
+
+@router.get("/users/me", response_model=UserResponse)
+async def get_me(
+    current_uid: str = Depends(get_current_uid),   # ← ここ
+    service: UserService = Depends(get_user_service)
+):
+    return await service.get_user(current_uid)
+
+@router.put("/users/me", response_model=dict)
+async def update_me(
+    data: UserUpdate,
+    current_uid: str = Depends(get_current_uid),   # ← ここ
+    service: UserService = Depends(get_user_service)
+):
+    await service.update_display_name(current_uid, data.display_name)
+    return {"ok": True}
+
+@router.get("/users", response_model=List[UserResponse])
+async def list_users(service: UserService = Depends(get_user_service)):
+    return await service.list_users()
+
+
+--- FILE: ./config.py ---
+
+import os
+
+from dotenv import load_dotenv
+load_dotenv()  # .envファイルを自動で読み込む
+
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://satopon_mongo:27017")
+REDIS_URI = os.getenv("REDIS_URI", "redis://satopon_redis:6379/0")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "satopon")
+JWT_SECRET = os.getenv("JWT_SECRET", "satopon-secret")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")
+
+# 認証プロバイダ種別（supabase or firebase）
+AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "supabase")
+
+# 各プロバイダ個別の秘密鍵や設定も追加
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", None)
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", None)
+
+# 例: どちらも存在しない場合はエラー出すなど、ここで制御できる
+if AUTH_PROVIDER == "supabase" and not SUPABASE_JWT_SECRET:
+    raise RuntimeError("SUPABASE_JWT_SECRET is required for Supabase auth")
+if AUTH_PROVIDER == "firebase" and not FIREBASE_PROJECT_ID:
+    raise RuntimeError("FIREBASE_PROJECT_ID is required for Firebase auth")
+
+
+--- FILE: ./db.py ---
+
+# src/db.py
+from motor.motor_asyncio import AsyncIOMotorClient
+from .config import MONGODB_URI, MONGO_DB_NAME
+
+client = AsyncIOMotorClient(MONGODB_URI)
+db = client[MONGO_DB_NAME]
+def get_db():
+    return db
+
+
+
+--- FILE: ./main.py ---
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from src.api import user, room, misc
+from .config import MONGODB_URI, MONGO_DB_NAME
+from src.db import get_db
+
+
+# FastAPI app設定など
+app = FastAPI()
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 必要に応じて制限
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+import os
+print("AUTH_PROVIDER:", os.getenv("AUTH_PROVIDER"))
+app.include_router(user.router, prefix="/api", tags=["user"])
+app.include_router(room.router, prefix="/api", tags=["room"])
+app.include_router(misc.router, prefix="/api", tags=["misc"])
+
+# WebSocketやイベントも後述
+
+
+
+--- FILE: ./models.py ---
+
+from pydantic import BaseModel, Field, EmailStr
+from typing import List, Optional
+from datetime import datetime
+
+# --- User ---
+class UserModel(BaseModel):
+    uid: str                   # 内部主キー
+    external_id: str           # sub（supabaseやfirebaseのsub）
+    display_name: str
+    email: EmailStr
+    icon_url: Optional[str] = None
+    registered_at: datetime
+    is_deleted: bool = False
+
+# --- Room ---
+class MemberObj(BaseModel):
+    uid: str
+    joined_at: datetime
+
+class RoomModel(BaseModel):
+    room_id: str
+    name: str
+    description: Optional[str] = None
+    color_id: int
+    created_by: str
+    created_at: datetime
+    is_archived: bool = False
+    members: List[MemberObj] = []
+
+# --- PointRecord ---
+class PointObj(BaseModel):
+    uid: str
+    value: int
+
+class PointRecordModel(BaseModel):
+    room_id: str
+    round_id: str
+    points: List[PointObj]
+    created_at: datetime
+    approved_by: List[str]
+    is_deleted: bool = False
+
+# --- Settlement ---
+class SettlementModel(BaseModel):
+    room_id: str
+    from_uid: str
+    to_uid: str
+    amount: int
+    approved: bool
+    created_at: datetime
+    approved_at: Optional[datetime] = None
+    is_deleted: bool = False
+
+
+
+--- FILE: ./repositories/__init__.py ---
+
+
+
+--- FILE: ./repositories/misc_repo.py ---
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from typing import Optional, List
+from datetime import datetime
+
+class PointRecordRepository:
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.point_records
+
+    async def create(self, data: dict):
+        data["created_at"] = datetime.utcnow()
+        data["is_deleted"] = False
+        await self.collection.insert_one(data)
+        return data["round_id"]
+
+    async def history(self, room_id: str) -> List[dict]:
+        cursor = self.collection.find({"room_id": room_id, "is_deleted": False})
+        return await cursor.to_list(length=100)
+
+    async def logical_delete(self, room_id: str, round_id: str) -> bool:
+        result = await self.collection.update_one(
+            {"room_id": room_id, "round_id": round_id}, {"$set": {"is_deleted": True}}
+        )
+        return result.modified_count == 1
+
+class SettlementRepository:
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.settlements
+
+    async def create(self, data: dict):
+        data["created_at"] = datetime.utcnow()
+        data["is_deleted"] = False
+        data["approved"] = False
+        await self.collection.insert_one(data)
+        return str(data["_id"])
+
+    async def approve(self, settlement_id: str):
+        from bson import ObjectId
+        result = await self.collection.update_one(
+            {"_id": ObjectId(settlement_id), "is_deleted": False},
+            {"$set": {"approved": True, "approved_at": datetime.utcnow()}}
+        )
+        return result.modified_count == 1
+
+    async def history(self, room_id: str) -> List[dict]:
+        cursor = self.collection.find({"room_id": room_id, "is_deleted": False})
+        return await cursor.to_list(length=100)
+
+
+
+--- FILE: ./repositories/room_repo.py ---
+
+from src.models import RoomModel, MemberObj
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from typing import Optional, List
+from datetime import datetime
+
+class RoomRepository:
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.rooms
+
+    async def create(self, data: dict) -> str:
+        data["created_at"] = datetime.utcnow()
+        data["is_archived"] = False
+        await self.collection.insert_one(data)
+        return data["room_id"]
+
+    async def get_by_id(self, room_id: str) -> Optional[dict]:
+        return await self.collection.find_one({"room_id": room_id, "is_archived": False})
+
+    async def update(self, room_id: str, updates: dict) -> bool:
+        result = await self.collection.update_one(
+            {"room_id": room_id, "is_archived": False}, {"$set": updates}
+        )
+        return result.modified_count == 1
+
+    async def list_rooms_for_user(self, uid: str) -> List[dict]:
+        cursor = self.collection.find({"members.uid": uid, "is_archived": False})
+        return await cursor.to_list(length=100)
+
+
+
+--- FILE: ./repositories/user_repo.py ---
+
+from src.models import UserModel
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from typing import Optional, List
+from datetime import datetime
+
+class UserRepository:
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.collection = db.users
+
+    async def get_by_uid(self, uid: str) -> Optional[dict]:
+        return await self.collection.find_one({"uid": uid, "is_deleted": False})
+
+    async def get_by_external_id(self, external_id: str) -> Optional[dict]:
+        return await self.collection.find_one({"external_id": external_id, "is_deleted": False})
+
+    async def create(self, data: dict) -> str:
+        data["registered_at"] = datetime.utcnow()
+        data["is_deleted"] = False
+        await self.collection.insert_one(data)
+        return data["uid"]
+
+    async def update_display_name(self, uid: str, display_name: str) -> bool:
+        result = await self.collection.update_one(
+            {"uid": uid, "is_deleted": False},
+            {"$set": {"display_name": display_name}}
+        )
+        return result.modified_count == 1
+
+    async def list_all(self) -> List[dict]:
+        cursor = self.collection.find({"is_deleted": False})
+        return await cursor.to_list(length=1000)
+
+
+
+--- FILE: ./schemas.py ---
+
+# src/schemas.py
+
+from pydantic import BaseModel, EmailStr
+from typing import List, Optional
+from datetime import datetime
+
+# --- User ---
+class UserCreate(BaseModel):
+    display_name: str
+    email: EmailStr
+    icon_url: Optional[str] = None
+
+class UserResponse(BaseModel):
+    uid: str
+    display_name: str
+    email: EmailStr
+    icon_url: Optional[str]
+    registered_at: datetime
+
+class UserUpdate(BaseModel):
+    display_name: str
+
+# --- Room ---
+class RoomCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    color_id: int
+
+class RoomUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    color_id: Optional[int] = None
+
+class RoomResponse(BaseModel):
+    room_id: str
+    name: str
+    description: Optional[str]
+    color_id: int
+    created_by: str
+    created_at: datetime
+    is_archived: bool
+    members: List[dict]
+
+# --- Point ---
+class PointInput(BaseModel):
+    uid: str
+    value: int
+
+class PointRegisterRequest(BaseModel):
+    points: List[PointInput]
+    approved_by: List[str]
+
+class PointHistoryResponse(BaseModel):
+    round_id: str
+    points: List[PointInput]
+    created_at: datetime
+    approved_by: List[str]
+    is_deleted: bool
+
+# --- Settlement ---
+class SettlementCreate(BaseModel):
+    to_uid: str
+    amount: int
+
+class SettlementHistoryResponse(BaseModel):
+    from_uid: str
+    to_uid: str
+    amount: int
+    approved: bool
+    created_at: datetime
+    approved_at: Optional[datetime]
+    is_deleted: bool
+
+
+--- FILE: ./services/__init__.py ---
+
+
+
+--- FILE: ./services/misc_service.py ---
+
+from src.repositories.misc_repo import PointRecordRepository, SettlementRepository
+import uuid
+from datetime import datetime
+
+class PointService:
+    def __init__(self, repo: PointRecordRepository):
+        self.repo = repo
+
+    async def add_points(self, room_id: str, points: list, approved_by: list):
+        round_id = str(uuid.uuid4())
+        payload = {
+            "room_id": room_id,
+            "round_id": round_id,
+            "points": points,
+            "approved_by": approved_by,
+            "created_at": datetime.utcnow(),
+            "is_deleted": False
+        }
+        return await self.repo.create(payload)
+
+    async def history(self, room_id: str):
+        return await self.repo.history(room_id)
+
+    async def logical_delete(self, room_id: str, round_id: str):
+        return await self.repo.logical_delete(room_id, round_id)
+
+class SettlementService:
+    def __init__(self, repo: SettlementRepository):
+        self.repo = repo
+
+    async def create(self, data: dict):
+        return await self.repo.create(data)
+
+    async def approve(self, settlement_id: str):
+        return await self.repo.approve(settlement_id)
+
+    async def history(self, room_id: str):
+        return await self.repo.history(room_id)
+
+
+
+--- FILE: ./services/room_service.py ---
+
+from src.repositories.room_repo import RoomRepository
+from src.repositories.misc_repo import PointRecordRepository
+from fastapi import HTTPException
+from datetime import datetime
+import uuid
+
+class RoomService:
+    def __init__(self, room_repo: RoomRepository, point_repo: PointRecordRepository):
+        self.room_repo = room_repo
+        self.point_repo = point_repo
+
+    async def create_room(self, uid: str, data: dict):
+        room_id = str(uuid.uuid4())
+        payload = {
+            "room_id": room_id,
+            "name": data["name"],
+            "description": data.get("description"),
+            "color_id": data["color_id"],
+            "created_by": uid,
+            "created_at": datetime.utcnow(),
+            "is_archived": False,
+            "members": [{"uid": uid, "joined_at": datetime.utcnow()}]
+        }
+        await self.room_repo.create(payload)
+        return room_id
+
+    async def get_room(self, room_id: str):
+        room = await self.room_repo.get_by_id(room_id)
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+        return room
+
+    async def list_user_rooms(self, uid: str):
+        return await self.room_repo.list_rooms_for_user(uid)
+
+    async def update_room(self, room_id: str, updates: dict, current_uid: str):
+        room = await self.room_repo.get_by_id(room_id)
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+        if room["created_by"] != current_uid:
+            raise HTTPException(status_code=403, detail="Not allowed to update this room")
+        return await self.room_repo.update(room_id, updates)
+
+    async def delete_room(self, room_id: str, current_uid: str):
+        room = await self.room_repo.get_by_id(room_id)
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+        if room["created_by"] != current_uid:
+            raise HTTPException(status_code=403, detail="Not allowed to delete this room")
+
+        # --- 全員ポイント残高チェック ---
+        point_histories = await self.point_repo.history(room_id)
+        balances = {}
+        for record in point_histories:
+            if record.get("is_deleted"):
+                continue
+            for pt in record.get("points", []):
+                uid = pt["uid"]
+                balances[uid] = balances.get(uid, 0) + pt["value"]
+        for member in room.get("members", []):
+            if balances.get(member["uid"], 0) != 0:
+                raise HTTPException(status_code=400, detail="ルームメンバーにポイント残高があるため削除不可")
+        # 論理削除
+        return await self.room_repo.update(room_id, {"is_archived": True})
+
+
+--- FILE: ./services/user_service.py ---
+
+import random
+import string
+from src.repositories.user_repo import UserRepository
+
+def generate_uid(length=8):
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
+class UserService:
+    def __init__(self, repo: UserRepository):
+        self.repo = repo
+
+    # JWTのsub or uid = external_id として渡される
+    async def create_user(self, user_data: dict, external_id: str):
+        user_data = user_data.copy()
+        user_data["external_id"] = external_id
+
+        # すでに同じexternal_idのユーザーが存在すればそれを返す
+        exists = await self.repo.get_by_external_id(external_id)
+        if exists:
+            return exists
+
+        # 新規ならDB上の主キーuidをランダムで作成（重複も排除）
+        uid = generate_uid()
+        while await self.repo.get_by_uid(uid):
+            uid = generate_uid()
+        user_data["uid"] = uid
+
+        await self.repo.create(user_data)
+        return await self.repo.get_by_uid(uid)
+
+    # DB主キーuidで取得
+    async def get_user(self, uid: str):
+        user = await self.repo.get_by_uid(uid)
+        if not user:
+            raise Exception("User not found")
+        return user
+
+    async def update_display_name(self, uid: str, display_name: str):
+        ok = await self.repo.update_display_name(uid, display_name)
+        if not ok:
+            raise Exception("Update failed")
+        return ok
+
+    async def list_users(self):
+        return await self.repo.list_all()
+
+
+--- FILE: ./utils.py ---
+
+import logging
+from fastapi import Request, HTTPException, status, Depends
+from jose import jwt
+from src.config import AUTH_PROVIDER, SUPABASE_JWT_SECRET, FIREBASE_PROJECT_ID
+from src.db import get_db
+
+logger = logging.getLogger(__name__)
+
+async def get_current_uid(
+    request: Request,
+    db=Depends(get_db)
+) -> str:
+    auth = request.headers.get("Authorization")
+    logger.debug(f"Authorization header: {auth}")
+    if not auth or not auth.startswith("Bearer "):
+        logger.warning("Authorization header missing or invalid")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    token = auth.split()[1]
+    try:
+        # --- JWTからexternal_idを取得 ---
+        if AUTH_PROVIDER == "supabase":
+            try:
+                payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+            except Exception as e:
+                logger.error("supabase decode error: %s", e)
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"supabase decode error: {e}")
+            external_id = payload["sub"]
+
+        elif AUTH_PROVIDER == "firebase":
+            from google.auth.transport import requests
+            from google.oauth2 import id_token
+            id_info = id_token.verify_oauth2_token(token, requests.Request(), FIREBASE_PROJECT_ID)
+            external_id = id_info["uid"]
+        else:
+            logger.error(f"Unknown AUTH_PROVIDER: {AUTH_PROVIDER}")
+            raise HTTPException(status_code=500, detail="Invalid AUTH_PROVIDER setting")
+
+        # --- DBからexternal_id→uidを逆引き ---
+        user = await db.users.find_one({"external_id": external_id, "is_deleted": False})
+        if not user:
+            logger.warning(f"User with external_id={external_id} not found")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not registered")
+        return user["uid"]
+
+    except Exception as e:
+        logger.error(f"JWT decode/verify failed: {e}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"JWT verify failed: {type(e).__name__}: {e}")
+
+
+--- FILE: ./ws.py ---
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+import asyncio
+
+router = APIRouter()
+active_connections = {}
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    uid = "..."  # JWTやクエリで認証
+    active_connections[uid] = websocket
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # 受信メッセージを処理
+            # 例: {"type": "join_request", ...}
+            # →各種イベントをブロードキャスト
+    except WebSocketDisconnect:
+        del active_connections[uid]
+        # RedisやDBでオンライン状態も更新
+
+# 個別イベント配信例
+async def send_event(uid: str, event: dict):
+    ws = active_connections.get(uid)
+    if ws:
+        await ws.send_json(event)
+
+
+
