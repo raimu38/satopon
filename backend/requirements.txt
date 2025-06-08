@@ -1,4 +1,9 @@
 fastapi
 uvicorn[standard]
-httpx
+pydantic
+motor
+aioredis
 python-dotenv
+python-jose
+email-validator
+

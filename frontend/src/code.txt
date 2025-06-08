@@ -1,3 +1,383 @@
+--- FILE: ./app/auth/page.tsx ---
+
+// page.tsx
+
+"use client";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+import { useRef, useState, useEffect } from "react";
+import AnimationSplash from "@/components/auth/AnimationSplash";
+
+export default function AuthPage() {
+  const router = useRouter();
+  const [isAnimating, setIsAnimating] = useState(false);
+  const animationTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const handleStart = async () => {
+    const { data } = await supabase.auth.getUser();
+    if (data?.user) {
+      setIsAnimating(true);
+      console.log("anima")
+      animationTimer.current = setTimeout(() => {
+        router.replace("/c402");
+      }, 2000);
+      return;
+    }
+    // 未認証ならGoogle認証フロー
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL,
+      },
+    });
+    if (error) alert("Google sign-in error: " + error.message);
+  };
+
+  // cleanup: ページ離脱時にタイマー破棄
+  useEffect(() => {
+    return () => {
+      if (animationTimer.current) clearTimeout(animationTimer.current);
+    };
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-gray-900 flex flex-col">
+      {isAnimating && <AnimationSplash />}
+      {/* 左上アプリ名 */}
+      <div className="absolute top-0 left-0 p-4 z-10">
+        <span className="text-white font-bold text-lg">satopon</span>
+      </div>
+      <div className="flex flex-1 flex-col justify-center items-center z-0">
+        <p className="text-gray-300 text-sm mb-12 text-center max-w-xs">
+          Track and settle scores with friends—fast, simple, and fair.
+        </p>
+        <button
+          onClick={handleStart}
+          className="
+            w-44 py-3
+            bg-gradient-to-tr from-blue-500 to-indigo-600
+            text-white font-semibold
+            rounded-full shadow
+            hover:from-blue-600 hover:to-indigo-700
+            transition
+            text-lg
+          "
+          disabled={isAnimating} // アニメ中は多重押し不可
+        >
+          Get Started
+        </button>
+        <div className="mt-2 text-xs text-gray-400 text-center">
+          Start with Google
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+--- FILE: ./app/c402/AccountModal.tsx ---
+
+// AccountModal.tsx
+
+export default function AccountModal({ user, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
+      <div className="bg-white rounded-lg p-6 shadow max-w-xs w-full">
+        <h2 className="font-bold mb-4">Account</h2>
+        <div className="flex flex-col items-center mb-4">
+          {user.avatar_url ? (
+            <img
+              src={user.avatar_url}
+              alt="avatar"
+              className="w-20 h-20 rounded-full mb-2"
+            />
+          ) : (
+            <div className="w-20 h-20 bg-blue-400 rounded-full flex items-center justify-center text-2xl font-bold text-white mb-2">
+              {user.name?.[0] ?? "?"}
+            </div>
+          )}
+          <div className="text-lg font-medium">{user.name}</div>
+          <div className="text-gray-500 text-sm">{user.email}</div>
+        </div>
+        <button
+          onClick={onClose}
+          className="bg-blue-600 text-white px-4 py-2 rounded w-full"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+--- FILE: ./app/c402/page.tsx ---
+
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient"; // ←自分のプロジェクトのパスで
+import AccountModal from "./AccountModal.tsx";
+import { useRouter } from "next/navigation"; // useRouterをインポート
+
+type UserProfile = {
+  id: string;
+  email: string;
+  name?: string;
+  avatar_url?: string;
+};
+
+export default function HomePage() {
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const router = useRouter(); // useRouterを初期化
+
+  useEffect(() => {
+    (async () => {
+      // Supabaseのユーザー情報取得
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) {
+        // ユーザーがいない場合はログインページにリダイレクト
+        router.push("/");
+        return;
+      }
+      const userData = data.user;
+      setUser({
+        id: userData.id,
+        email: userData.email ?? "",
+        name:
+          userData.user_metadata?.full_name ||
+          userData.user_metadata?.name ||
+          userData.email?.split("@")[0] ||
+          "",
+        avatar_url: userData.user_metadata?.avatar_url || "", // Googleログインなどの場合のみ
+      });
+    })();
+  }, [router]); // routerを依存配列に追加
+
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      alert("ログアウト中にエラーが発生しました: " + error.message);
+    } else {
+      router.push("/"); // ログアウト後にトップページへリダイレクト
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      {/* 右上アカウントアイコンとログアウトボタン */}
+      <div className="absolute top-4 right-4 flex items-center space-x-2">
+        {" "}
+        {/* flexboxで横並びに */}
+        <button
+          className="w-10 h-10 bg-blue-500 text-white rounded-full overflow-hidden flex items-center justify-center text-lg font-bold"
+          onClick={() => setShowModal(true)}
+          title="アカウント情報"
+        >
+          {user?.avatar_url ? (
+            <img
+              src={user.avatar_url}
+              alt="avatar"
+              className="w-full h-full object-cover rounded-full"
+            />
+          ) : (
+            (user?.name?.[0] ?? "?")
+          )}
+        </button>
+        <button
+          onClick={handleLogout}
+          className="bg-red-500 hover:bg-red-600 text-white text-sm font-semibold py-2 px-3 rounded-md shadow-sm transition duration-200 ease-in-out"
+          title="ログアウト"
+        >
+          ログアウト
+        </button>
+      </div>
+      <div className="flex-1 flex flex-col justify-center items-center">
+        <h1 className="text-2xl font-bold mb-4">Home</h1>
+        {/* 他のUI */}
+      </div>
+      {showModal && user && (
+        <AccountModal user={user} onClose={() => setShowModal(false)} />
+      )}
+    </div>
+  );
+}
+
+
+--- FILE: ./app/globals.css ---
+
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* globals.css */
+/* globals.css */
+.material-symbols-outlined {
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  /* 必要に応じて調整してください */
+}
+/* スクロールバー非表示 */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+
+@layer utilities {
+  .animate-spin-slow {
+    animation: spin 3s linear infinite;
+  }
+}
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+
+@layer utilities {
+  .animate-slide-in-right {
+    /* 初期状態で完全に透明に */
+    opacity: 0;
+    /* アニメーション再生後は最終状態を保持 */
+    animation: slide-in-right 0.3s ease-out forwards;
+    animation-fill-mode: both;
+    will-change: transform, opacity;
+  }
+}
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.rotating-gradient {
+  position: relative;
+  overflow: hidden;
+}
+.rotating-gradient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(0deg, #312e81 0%, #111827 100%);
+  animation: gradient-rotate-real 32s linear infinite;
+  will-change: transform;
+}
+@keyframes gradient-rotate-real {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+/* 子要素を前面に */
+.rotating-gradient > * {
+  position: relative;
+  z-index: 1;
+}
+
+
+@keyframes coin-drop {
+  0% {
+    top: -80px;
+    opacity: 0.95;
+    transform: rotateZ(0deg) scale(1.05);
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    transform: rotateZ(var(--angle, 15deg)) scale(0.98);
+    opacity: 1;
+  }
+  100% {
+    top: 94vh;
+    opacity: 0.77;
+    transform: rotateZ(var(--angle, 25deg)) scale(0.97);
+  }
+}
+.coin {
+  position: absolute;
+  top: -80px;
+  z-index: 10;
+  pointer-events: none;
+  filter: drop-shadow(0 0 32px #facc1577);
+  will-change: top, opacity, transform;
+  opacity: 1;
+}
+
+body { font-family: Arial, sans-serif; background: #f8f9fa; margin: 0; }
+input, button, select { font-size: 1rem; }
+hr { margin: 2rem 0; }
+
+
+
+--- FILE: ./app/layout.tsx ---
+
+import "./globals.css";
+export const metadata = {
+  title: 'Next.js',
+  description: 'Generated by Next.js',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  )
+}
+
+
+--- FILE: ./app/page.tsx ---
+
 // src/app/page.tsx
 
 "use client";
@@ -640,3 +1020,339 @@ export default function MainPage() {
     </div>
   );
 }
+
+
+--- FILE: ./components/auth/AnimationSplash.module.css ---
+
+.splashRoot {
+  position: fixed;
+  inset: 0;
+  background: #18181b;
+  z-index: 100;
+  overflow: hidden;
+  pointer-events: none;
+}
+.satoponSpin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-weight: 800;
+  font-size: 2.5rem;
+  color: white;
+  animation: satopon-spin 1s linear infinite;
+  user-select: none;
+  pointer-events: none;
+  letter-spacing: 0.06em;
+  filter: drop-shadow(0 0 18px #facc15cc);
+}
+@keyframes satopon-spin {
+  0% { transform: translate(-50%, -50%) rotate(0deg);}
+  100% { transform: translate(-50%, -50%) rotate(360deg);}
+}
+.coin {
+  position: absolute;
+  top: -80px;
+  z-index: 10;
+  pointer-events: none;
+  filter: drop-shadow(0 0 32px #facc1577);
+  will-change: top, opacity, transform;
+  opacity: 1;
+}
+@keyframes coin-drop {
+  0% {
+    top: -80px;
+    opacity: 0.95;
+    transform: rotateZ(var(--angle, 12deg)) scale(1.05);
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    transform: rotateZ(var(--angle, 18deg)) scale(0.98);
+    opacity: 1;
+  }
+  100% {
+    top: 94vh;
+    opacity: 0.77;
+    transform: rotateZ(var(--angle, 24deg)) scale(0.97);
+  }
+}
+
+
+--- FILE: ./components/auth/AnimationSplash.tsx ---
+
+import React from "react";
+import styles from "./AnimationSplash.module.css";
+
+type Coin = {
+  id: number;
+  left: number;
+  size: number;
+  delay: number;
+  duration: number;
+  angle: number;
+};
+
+export default function AnimationSplash({ show = true }: { show?: boolean }) {
+  const coins = React.useMemo(() => {
+    if (!show) return [];
+    const arr: Coin[] = [];
+    for (let i = 0; i < 48; ++i) {
+      arr.push({
+        id: i,
+        left: 5 + Math.random() * 90,
+        size: 42 + Math.random() * 36,
+        delay: Math.random() * 0.4,
+        duration: 0.85 + Math.random() * 0.65,
+        angle: -24 + Math.random() * 48
+      });
+    }
+    return arr;
+  }, [show]);
+  if (!show) return null;
+  return (
+    <div className={styles.splashRoot}>
+      <div className={styles.satoponSpin}>satopon</div>
+      {coins.map(c => (
+        <div
+          key={c.id}
+          className={styles.coin}
+          style={{
+            left: `${c.left}%`,
+            width: c.size,
+            height: c.size,
+            "--angle": `${c.angle}deg`,
+            animation:
+              `coin-drop ${c.duration}s ${c.delay}s cubic-bezier(0.28,0.7,0.45,1.12) forwards`
+          } as React.CSSProperties}
+        >
+          <svg viewBox="0 0 64 64" width={c.size} height={c.size}>
+            <defs>
+              <radialGradient id={`gold-main${c.id}`} cx="50%" cy="30%" r="60%">
+                <stop offset="0%" stopColor="#f7fafc" />
+                <stop offset="45%" stopColor="#facc15" />
+                <stop offset="100%" stopColor="#b45309" />
+              </radialGradient>
+              <radialGradient id={`gold-edge${c.id}`} cx="50%" cy="70%" r="50%">
+                <stop offset="0%" stopColor="#fef9c3" />
+                <stop offset="100%" stopColor="#facc15" />
+              </radialGradient>
+              <filter id={`coin-glow${c.id}`} x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            {/* コインふち */}
+            <ellipse
+              cx="32"
+              cy="32"
+              rx="30"
+              ry="30"
+              fill={`url(#gold-edge${c.id})`}
+              filter={`url(#coin-glow${c.id})`}
+              stroke="#fef9c3"
+              strokeWidth="3"
+            />
+            {/* 本体 */}
+            <ellipse
+              cx="32"
+              cy="32"
+              rx="26"
+              ry="26"
+              fill={`url(#gold-main${c.id})`}
+              stroke="#facc15"
+              strokeWidth="1"
+            />
+            {/* 刻印 */}
+            <text
+              x="32"
+              y="44"
+              textAnchor="middle"
+              fontSize="30"
+              fontWeight="bold"
+              fill="#fffbe7"
+              stroke="#facc15"
+              strokeWidth="1.2"
+              filter={`url(#coin-glow${c.id})`}
+              style={{
+                textShadow: "0 1px 6px #fbbf24, 0 2px 12px #fbbf24cc"
+              }}
+            >S</text>
+          </svg>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+--- FILE: ./lib/api.ts ---
+
+// src/lib/api.ts
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+
+type ApiOptions = {
+  method?: string;
+  body?: any;
+  token?: string;
+  headers?: Record<string, string>;
+};
+
+async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  let token = options.token;
+  if (!token) throw new Error("JWT token required");
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: options.method || "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || res.statusText);
+  }
+  return await res.json();
+}
+
+// --- ユーザー ---
+export const getMe = (token: string) => api("/users/me", { token });
+export const updateMe = (token: string, display_name: string) =>
+  api("/users/me", { method: "PUT", token, body: { display_name } });
+export const getUserPointHistory = (token: string) =>
+  api("/users/me/points/history", { token });
+export const getUserSettleHistory = (token: string) =>
+  api("/users/me/settle/history", { token });
+
+export async function createUser(
+  token: string,
+  { display_name, email, icon_url },
+) {
+  return api("/users", {
+    method: "POST",
+    token,
+    body: { display_name, email, icon_url },
+  });
+}
+// --- ルーム ---
+export const createRoom = (
+  token: string,
+  room: { name: string; description?: string; color_id: number },
+) => api("/rooms", { method: "POST", token, body: room });
+export const listRooms = (token: string) => api("/rooms", { token });
+
+export const getAllRooms = (token: string) => api("/rooms/all", { token });
+export const getRoom = (token: string, room_id: string) =>
+  api(`/rooms/${room_id}`, { token });
+export const updateRoom = (
+  token: string,
+  room_id: string,
+  updates: Partial<{ name: string; description: string; color_id: number }>,
+) => api(`/rooms/${room_id}`, { method: "PUT", token, body: updates });
+export const deleteRoom = (token: string, room_id: string) =>
+  api(`/rooms/${room_id}`, { method: "DELETE", token });
+export const joinRoom = (token: string, room_id: string) =>
+  api(`/rooms/${room_id}/join`, { method: "POST", token });
+export const cancelJoinRequest = (token: string, room_id: string) =>
+  api(`/rooms/${room_id}/cancel_join`, { method: "POST", token });
+export const leaveRoom = (token: string, room_id: string) =>
+  api(`/rooms/${room_id}/leave`, { method: "POST", token });
+export const approveMember = (
+  token: string,
+  room_id: string,
+  applicant_user_id: string,
+) =>
+  api(`/rooms/${room_id}/approve`, {
+    method: "POST",
+    token,
+    body: { applicant_user_id },
+  });
+export const rejectMember = (
+  token: string,
+  room_id: string,
+  applicant_user_id: string,
+) =>
+  api(`/rooms/${room_id}/reject`, {
+    method: "POST",
+    token,
+    body: { applicant_user_id },
+  });
+
+// --- ポイント ---
+export const addPoints = (
+  token: string,
+  room_id: string,
+  points: Array<{ uid: string; value: number }>,
+  approved_by: string[],
+) =>
+  api(`/rooms/${room_id}/points`, {
+    method: "POST",
+    token,
+    body: { points, approved_by },
+  });
+export const getPointHistory = (token: string, room_id: string) =>
+  api(`/rooms/${room_id}/points/history`, { token });
+export const approvePoint = (
+  token: string,
+  room_id: string,
+  round_id: string,
+) =>
+  api(`/rooms/${room_id}/points/${round_id}/approve`, {
+    method: "POST",
+    token,
+  });
+export const getPointStatus = (
+  token: string,
+  room_id: string,
+  round_id: string,
+) => api(`/rooms/${room_id}/points/${round_id}/status`, { token });
+export const deletePointRecord = (
+  token: string,
+  room_id: string,
+  round_id: string,
+) => api(`/rooms/${room_id}/points/${round_id}`, { method: "DELETE", token });
+
+// --- 精算 ---
+export const settle = (
+  token: string,
+  room_id: string,
+  to_uid: string,
+  amount: number,
+) =>
+  api(`/rooms/${room_id}/settle`, {
+    method: "POST",
+    token,
+    body: { to_uid, amount },
+  });
+export const approveSettlement = (
+  token: string,
+  room_id: string,
+  settlement_id: string,
+) =>
+  api(`/rooms/${room_id}/settle/${settlement_id}/approve`, {
+    method: "POST",
+    token,
+  });
+export const getSettlementHistory = (token: string, room_id: string) =>
+  api(`/rooms/${room_id}/settle/history`, { token });
+
+
+--- FILE: ./lib/supabaseClient.ts ---
+
+// lib/supabaseClient.ts
+import { createClient } from '@supabase/supabase-js'
+
+export const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+
+

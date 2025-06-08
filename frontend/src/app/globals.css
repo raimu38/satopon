@@ -111,3 +111,36 @@ body {
 }
 
 
+@keyframes coin-drop {
+  0% {
+    top: -80px;
+    opacity: 0.95;
+    transform: rotateZ(0deg) scale(1.05);
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    transform: rotateZ(var(--angle, 15deg)) scale(0.98);
+    opacity: 1;
+  }
+  100% {
+    top: 94vh;
+    opacity: 0.77;
+    transform: rotateZ(var(--angle, 25deg)) scale(0.97);
+  }
+}
+.coin {
+  position: absolute;
+  top: -80px;
+  z-index: 10;
+  pointer-events: none;
+  filter: drop-shadow(0 0 32px #facc1577);
+  will-change: top, opacity, transform;
+  opacity: 1;
+}
+
+body { font-family: Arial, sans-serif; background: #f8f9fa; margin: 0; }
+input, button, select { font-size: 1rem; }
+hr { margin: 2rem 0; }
+
