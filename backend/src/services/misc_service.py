@@ -223,3 +223,21 @@ class SettlementService:
 
     async def history_by_uid(self, uid: str):
         return await self.repo.history_by_uid(uid)
+
+
+    async def validate_request(self, room_id: str, from_uid: str, to_uid: str, amount: int):
+        # (1) 同じルームに属しているか
+        room = await self.room_repo.get_by_id(room_id)
+        members = {m["uid"] for m in room.get("members", [])}
+        if from_uid not in members or to_uid not in members:
+            raise HTTPException(400, "相手が同じルームにいません")
+        # (2) 送信元残高チェック
+        hist = await self.point_repo.history_by_uid(from_uid)
+        bal = sum(p.value for rec in hist for p in rec.points if p.uid == from_uid)
+        if bal + amount > 0:
+            raise HTTPException(400, "あなたの残高不足です")
+        # (3) 受信側残高チェック
+        hist2 = await self.point_repo.history_by_uid(to_uid)
+        bal2 = sum(p.value for rec in hist2 for p in rec.points if p.uid == to_uid)
+        if bal2 - amount < 0:
+            raise HTTPException(400, "相手の残高制限を超えます")

@@ -17,7 +17,7 @@ export default function RoomPage() {
   const [pointHistory, setPointHistory] = useState<any[]>([]);
   const [settleHistory, setSettleHistory] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
-
+  const [myBalance, setMyBalance] = useState<number>(0);
   // ポイントラウンド用 state
   const [isRoundActive, setIsRoundActive] = useState(false);
   const [currentRoundId, setCurrentRoundId] = useState<string | null>(null);
@@ -40,12 +40,52 @@ export default function RoomPage() {
     onEvent,
   } = usePresence();
 
+  const [pendingReq, setPendingReq] = useState<{
+    from_uid: string;
+    amount: number;
+  } | null>(null);
+
+  // presence / point-round / 基本 fetch (省略)
+  // 5. WebSocket イベントで精算リクエストを受け取る
+  //    → me が取れてから登録するようにガードを追加
+  useEffect(() => {
+    if (!me) return; // ← ここを追加
+    const off = onEvent((ev) => {
+      console.log("★WS イベント受信★", ev, "me.uid=", me.uid);
+      if (ev.room_id !== roomId) return;
+      switch (ev.type) {
+        case "settle_requested":
+          if (ev.to_uid === me.uid) {
+            setPendingReq({ from_uid: ev.from_uid, amount: ev.amount });
+          }
+          break;
+        case "settle_rejected":
+          if (ev.to_uid === me.uid) {
+            alert(`${ev.from_uid} さんに拒否されました`);
+          }
+          break;
+        case "settle_completed":
+          setMsg((m) => m + "x");
+          break;
+      }
+    });
+    return off;
+  }, [onEvent, me, roomId]);
   // 1. トークン＆ユーザー取得
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setToken(data.session?.access_token ?? null);
     });
   }, []);
+
+  useEffect(() => {
+    if (!me) return; // ← me が null のときは何もしない
+    const total = pointHistory.reduce((sum, rec) => {
+      const entry = rec.points.find((p: any) => p.uid === me.uid);
+      return sum + (entry?.value || 0);
+    }, 0);
+    setMyBalance(total);
+  }, [pointHistory, me]);
 
   useEffect(() => {
     if (!token) return;
@@ -132,7 +172,13 @@ export default function RoomPage() {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
       <header className="flex items-center justify-between p-6 border-b border-gray-700">
-        <h1 className="text-2xl font-bold">{room.name}</h1>
+        <div>
+          <h1 className="text-2xl font-bold">{room.name}</h1>
+          <p className="text-gray-400 mt-1">
+            あなたのポイント:{" "}
+            <span className="text-yellow-300 font-semibold">{myBalance}pt</span>
+          </p>
+        </div>
         <Link href="/c402" className="text-blue-400 hover:underline">
           ← ダッシュボードへ
         </Link>
@@ -329,7 +375,45 @@ export default function RoomPage() {
             ))
           )}
         </section>
-
+        {/* 承認モーダル */}
+        {pendingReq && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
+            <div className="bg-gray-800 p-6 rounded">
+              <p className="mb-4 text-white">
+                {pendingReq.from_uid} さんから {pendingReq.amount}円
+                の精算リクエストがあります。
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    await api.approveSettlementRequest(
+                      token!,
+                      roomId!,
+                      pendingReq.from_uid,
+                    );
+                    setPendingReq(null);
+                  }}
+                  className="px-4 py-2 bg-green-600 rounded"
+                >
+                  承認
+                </button>
+                <button
+                  onClick={async () => {
+                    await api.rejectSettlementRequest(
+                      token!,
+                      roomId!,
+                      pendingReq.from_uid,
+                    );
+                    setPendingReq(null);
+                  }}
+                  className="px-4 py-2 bg-red-600 rounded"
+                >
+                  拒否
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* 精算 */}
         <section className="bg-gray-800 p-4 rounded">
           <h2 className="font-semibold mb-3">精算</h2>
@@ -363,16 +447,16 @@ export default function RoomPage() {
             />
             <button
               onClick={async () => {
-                await api.settle(
-                  token,
-                  roomId,
+                // リクエスト送信API
+                await api.requestSettlement(
+                  token!,
+                  roomId!,
                   settleInput.to_uid,
                   settleInput.amount,
                 );
-                setMsg("settled");
                 setSettleInput({ to_uid: "", amount: 0 });
               }}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded"
+              className="px-4 py-2 bg-purple-600 rounded"
             >
               リクエスト
             </button>

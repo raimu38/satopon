@@ -168,3 +168,35 @@ export const approveSettlement = (
   });
 export const getSettlementHistory = (token: string, room_id: string) =>
   api(`/rooms/${room_id}/settle/history`, { token });
+
+export const requestSettlement = (
+  token: string,
+  room_id: string,
+  to_uid: string,
+  amount: number,
+) =>
+  api(`/rooms/${room_id}/settle/request`, {
+    method: "POST",
+    token,
+    body: { to_uid, amount },
+  });
+
+export const approveSettlementRequest = (
+  token: string,
+  room_id: string,
+  from_uid: string,
+) =>
+  api(
+    `/rooms/${room_id}/settle/request/${from_uid}/approve`, // ← here
+    { method: "POST", token },
+  );
+
+export const rejectSettlementRequest = (
+  token: string,
+  room_id: string,
+  from_uid: string,
+) =>
+  api(
+    `/rooms/${room_id}/settle/request/${from_uid}/reject`, // ← and here
+    { method: "POST", token },
+  );

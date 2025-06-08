@@ -84,3 +84,43 @@ class SettlementRepository:
             {"$or": [{"from_uid": uid}, {"to_uid": uid}], "is_deleted": False}
         )
         return await cursor.to_list(length=100)
+
+
+
+# src/repositories/misc_repo.py
+
+import redis.asyncio as redis
+
+class SettlementCacheRepository:
+    def __init__(self, redis_client: redis.Redis):
+        self.redis = redis_client
+
+    def _key(self, room_id: str, from_uid: str, to_uid: str) -> str:
+        return f"settle:{room_id}:{from_uid}->{to_uid}"
+
+    async def cache_request(self, room_id: str, from_uid: str, to_uid: str, amount: int):
+        k = self._key(room_id, from_uid, to_uid)
+        # Hash にして TTL 180 秒
+        await self.redis.hset(k, mapping={
+            "room_id": room_id,
+            "from_uid": from_uid,
+            "to_uid": to_uid,
+            "amount": amount,
+        })
+        await self.redis.expire(k, 180)
+
+    async def get_request(self, room_id: str, from_uid: str, to_uid: str):
+        k = self._key(room_id, from_uid, to_uid)
+        data = await self.redis.hgetall(k)
+        if not data or "amount" not in data:
+            return None
+        return {
+            "room_id": data["room_id"],
+            "from_uid": data["from_uid"],
+            "to_uid": data["to_uid"],
+            "amount": int(data["amount"]),
+        }
+
+    async def clear_request(self, room_id: str, from_uid: str, to_uid: str):
+        k = self._key(room_id, from_uid, to_uid)
+        await self.redis.delete(k)
