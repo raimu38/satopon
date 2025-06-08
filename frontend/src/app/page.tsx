@@ -1,642 +1,73 @@
-// src/app/page.tsx
+// page.tsx
 
 "use client";
-import { useEffect, useState, useRef } from "react";
-import { supabase } from "../lib/supabaseClient";
-import * as api from "../lib/api";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+import { useRef, useState, useEffect } from "react";
+import AnimationSplash from "@/components/auth/AnimationSplash";
 
-type Room = any;
-type User = any;
-type PointRecord = any;
-type Settlement = any;
+export default function AuthPage() {
+  const router = useRouter();
+  const [isAnimating, setIsAnimating] = useState(false);
+  const animationTimer = useRef<NodeJS.Timeout | null>(null);
 
-export default function MainPage() {
-  const [token, setToken] = useState<string | null>(null);
-  const [me, setMe] = useState<User | null>(null);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
-  const [roomDetail, setRoomDetail] = useState<Room | null>(null);
-  const [pointHistory, setPointHistory] = useState<PointRecord[]>([]);
-  const [settleHistory, setSettleHistory] = useState<Settlement[]>([]);
-  const [msg, setMsg] = useState<string>("");
-  const [newRoom, setNewRoom] = useState({ name: "", color_id: 1 });
-  const [pointInputs, setPointInputs] = useState<Record<string, number>>({});
-  const [settleInput, setSettleInput] = useState({ to_uid: "", amount: 0 });
-  const wsRef = useRef<WebSocket | null>(null);
-
-  // --- 認証 ---
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      const t = data.session?.access_token;
-      setToken(t ?? null);
-    });
-  }, []);
-
-  // --- 自分情報/APIユーザー ---
-  // src/app/page.tsx
-  const [allRooms, setAllRooms] = useState<Room[]>([]);
-
-  // 追加: 全ルーム一覧
-  useEffect(() => {
-    if (!token) return;
-    api.getAllRooms(token).then(setAllRooms);
-  }, [token, msg]);
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    async function setupUser() {
-      try {
-        // まず既存ユーザーを探す
-        const me = await api.getMe(token);
-        if (!cancelled) setMe(me);
-      } catch (e) {
-        // いなければ supabase から情報取得し createUser
-        const { data } = await supabase.auth.getUser();
-        const user = data.user;
-        if (!user) return;
-        const display_name =
-          user.user_metadata?.full_name ||
-          user.user_metadata?.name ||
-          user.email?.split("@")[0] ||
-          "";
-        const email = user.email;
-        const icon_url = user.user_metadata?.avatar_url || "";
-        const me = await api.createUser(token, {
-          display_name,
-          email,
-          icon_url,
-        });
-        if (!cancelled) setMe(me);
-      }
-    }
-    setupUser();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-  // --- ルーム一覧 ---
-  useEffect(() => {
-    if (!token) return;
-    api.listRooms(token).then(setRooms);
-  }, [token, msg]);
-
-  // --- 選択ルーム詳細/履歴 ---
-  useEffect(() => {
-    if (!token || !currentRoomId) return;
-    api.getRoom(token, currentRoomId).then(setRoomDetail);
-    api.getPointHistory(token, currentRoomId).then(setPointHistory);
-    api.getSettlementHistory(token, currentRoomId).then(setSettleHistory);
-  }, [token, currentRoomId, msg]);
-
-  // --- WebSocketリアルタイム通知 ---
-  // イベント受信でreloadCountをインクリメント
-  const [reloadCount, setReloadCount] = useState(0);
-  useEffect(() => {
-    if (!token) return;
-    if (wsRef.current) wsRef.current.close();
-    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws"}?token=${token}`;
-    const ws = new window.WebSocket(wsUrl);
-    ws.onmessage = (e) => {
-      const event = JSON.parse(e.data);
-
-      if (event.type === "join_request_cancelled" && event.room_id) {
-        // 画面上のroomDetailと一致するならpending_membersから除外
-        if (roomDetail && roomDetail.room_id === event.room_id) {
-          setRoomDetail({
-            ...roomDetail,
-            pending_members: roomDetail.pending_members.filter(
-              (m: any) => m.uid !== event.user_id,
-            ),
-          });
-        }
-        // もしallRoomsのpending_membersも変えたい場合は同様にsetAllRoomsで部分更新
-        setReloadCount((c) => c + 1); // 万が一のためリロードも残す
-      }
-      console.log("WS Event Received:", event);
-      // ここ追加↓
-      if (event.type === "join_request" && event.room_id) {
-        setCurrentRoomId(event.room_id);
-      }
-      if (
-        ["join_request", "join_approved" /*他イベント*/].includes(event.type)
-      ) {
-        setReloadCount((c) => c + 1);
-      }
-    };
-    wsRef.current = ws;
-    return () => {
-      ws.close();
-    };
-  }, [token, currentRoomId]);
-
-  useEffect(() => {
-    if (!token || !currentRoomId) {
+  const handleStart = async () => {
+    const { data } = await supabase.auth.getUser();
+    if (data?.user) {
+      setIsAnimating(true);
+      console.log("anima");
+      animationTimer.current = setTimeout(() => {
+        router.replace("/c402");
+      }, 2000);
       return;
     }
-    api.getRoom(token, currentRoomId).then((data) => {
-      setRoomDetail(data);
+    // 未認証ならGoogle認証フロー
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL,
+      },
     });
-    api.getPointHistory(token, currentRoomId).then(setPointHistory);
-    api.getSettlementHistory(token, currentRoomId).then(setSettleHistory);
-  }, [token, currentRoomId, reloadCount]);
+    if (error) alert("Google sign-in error: " + error.message);
+  };
 
-  // --- UI ---
-  if (!token) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
-        <h1 className="text-3xl font-bold mb-6 text-gray-800">
-          Satopon - ポイント管理
-        </h1>
-        <button
-          onClick={async () => {
-            const { error } = await supabase.auth.signInWithOAuth({
-              provider: "google",
-              options: { redirectTo: window.location.href },
-            });
-            if (error) alert("Google認証エラー: " + error.message);
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-        >
-          Googleでログイン
-        </button>
-      </div>
-    );
-  }
-
-  if (!me)
-    return (
-      <div className="min-h-screen flex items-center justify-center text-gray-700">
-        Loading...
-      </div>
-    );
+  // cleanup: ページ離脱時にタイマー破棄
+  useEffect(() => {
+    return () => {
+      if (animationTimer.current) clearTimeout(animationTimer.current);
+    };
+  }, []);
 
   return (
-    <div className="max-w-3xl mx-auto my-8 bg-white p-6 rounded-lg shadow-xl">
-      <div className="flex justify-between items-center mb-6 border-b pb-4">
-        <div className="text-lg font-semibold text-gray-800">
-          <b>{me?.display_name}</b> ({me.email})
-        </div>
+    <div className="min-h-screen bg-gray-900 flex flex-col">
+      {isAnimating && <AnimationSplash />}
+      {/* 左上アプリ名 */}
+      <div className="absolute top-0 left-0 p-4 z-10">
+        <span className="text-white font-bold text-lg">satopon</span>
+      </div>
+      <div className="flex flex-1 flex-col justify-center items-center z-0">
+        <p className="text-gray-300 text-sm mb-12 text-center max-w-xs">
+          Track and settle scores with friends—fast, simple, and fair.
+        </p>
         <button
-          onClick={() => {
-            supabase.auth.signOut().then(() => {
-              location.reload();
-            });
-          }}
-          className="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-opacity-75"
+          onClick={handleStart}
+          className="
+            w-44 py-3
+            bg-gradient-to-tr from-blue-500 to-indigo-600
+            text-white font-semibold
+            rounded-full shadow
+            hover:from-blue-600 hover:to-indigo-700
+            transition
+            text-lg
+          "
+          disabled={isAnimating} // アニメ中は多重押し不可
         >
-          ログアウト
+          Get Started
         </button>
-      </div>
-      <div className="mb-8">
-        <h2 className="text-xl font-bold mb-3 text-gray-800">
-          他のルームに参加
-        </h2>
-        <div className="space-y-2">
-          {allRooms
-            .filter((r) => !rooms.some((mine) => mine.room_id === r.room_id))
-            .map((room) => {
-              const isPending = room.pending_members?.some(
-                (m: any) => m.uid === me.uid,
-              );
-              return (
-                <div
-                  key={room.room_id}
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-gray-50"
-                >
-                  <span>{room.room_id}</span>
-                  <span className="text-gray-700">{room.name}</span>
-                  {!isPending ? (
-                    <button
-                      className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded transition"
-                      onClick={async () => {
-                        try {
-                          await api.joinRoom(token, room.room_id);
-                          setMsg("ルーム参加申請");
-                        } catch (e: any) {
-                          alert(e.message);
-                        }
-                      }}
-                    >
-                      参加
-                    </button>
-                  ) : (
-                    <button
-                      className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded transition"
-                      onClick={async () => {
-                        try {
-                          await api.cancelJoinRequest(token, room.room_id);
-                          setMsg("申請キャンセル");
-                        } catch (e: any) {
-                          alert(e.message);
-                        }
-                      }}
-                    >
-                      申請キャンセル
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+        <div className="mt-2 text-xs text-gray-400 text-center">
+          Start with Google
         </div>
       </div>
-      <h2 className="text-2xl font-bold mb-4 text-gray-800">自分のルーム</h2>
-      <div className="space-y-3 mb-6">
-        {rooms.map((room) => (
-          <div
-            key={room.room_id}
-            className={`flex items-center justify-between p-4 border border-gray-200 rounded-lg shadow-sm transition-all duration-200 ease-in-out ${
-              currentRoomId === room.room_id
-                ? "bg-blue-50 border-blue-300 ring-1 ring-blue-300"
-                : "bg-gray-50 hover:bg-gray-100"
-            }`}
-          >
-            <span className="font-medium text-gray-700">{room.name}</span>
-            <div className="flex space-x-2">
-              <button
-                className="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1 px-3 rounded-md transition"
-                onClick={() => setCurrentRoomId(room.room_id)}
-              >
-                詳細
-              </button>
-              <button
-                className="bg-red-400 hover:bg-red-500 text-white text-sm py-1 px-3 rounded-md transition"
-                onClick={async () => {
-                  try {
-                    await api.deleteRoom(token, room.room_id);
-                    setMsg("削除完了");
-                    if (currentRoomId === room.room_id) setCurrentRoomId(null);
-                  } catch (e: any) {
-                    alert(e.message);
-                  }
-                }}
-              >
-                ルーム削除
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <h3 className="text-xl font-bold mb-3 text-gray-800">新規ルーム作成</h3>
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        <input
-          className="flex-grow p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-          placeholder="ルーム名"
-          value={newRoom.name}
-          onChange={(e) => setNewRoom({ ...newRoom, name: e.target.value })}
-        />
-        <input
-          type="number"
-          min={1}
-          max={12}
-          className="w-20 p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-          value={newRoom.color_id}
-          onChange={(e) =>
-            setNewRoom({ ...newRoom, color_id: Number(e.target.value) })
-          }
-        />
-        <button
-          className="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm transition"
-          onClick={async () => {
-            try {
-              await api.createRoom(token, newRoom);
-              setNewRoom({ name: "", color_id: 1 });
-              setMsg("ルーム作成");
-            } catch (e: any) {
-              alert(e.message);
-            }
-          }}
-        >
-          作成
-        </button>
-      </div>
-
-      <hr className="my-6 border-gray-300" />
-
-      {roomDetail && (
-        <div>
-          <p>Hello!!</p>
-        </div>
-      )}
-      {roomDetail &&
-        roomDetail.pending_members &&
-        roomDetail.pending_members.length > 0 && (
-          <div className="mb-4">
-            <h4 className="font-semibold text-gray-700 mb-2">
-              参加申請中メンバー
-            </h4>
-
-            {roomDetail.pending_members.map((pending: any) => (
-              <div key={pending.uid} className="flex items-center gap-2 mb-2">
-                <span className="text-gray-700">{pending.uid}</span>
-                {/* 申請者本人はキャンセルできる */}
-                {pending.uid === me.uid && (
-                  <button
-                    className="bg-red-400 hover:bg-red-500 text-white text-xs px-2 py-1 rounded"
-                    onClick={async () => {
-                      try {
-                        await api.cancelJoinRequest(token, currentRoomId);
-                        setMsg("申請キャンセル");
-                      } catch (e: any) {
-                        alert(e.message);
-                      }
-                    }}
-                  >
-                    申請キャンセル
-                  </button>
-                )}
-                {/* ルームの作成者だけが承認/拒否できる */}
-                {roomDetail.created_by === me.uid && pending.uid !== me.uid && (
-                  <>
-                    <button
-                      className="bg-green-500 hover:bg-green-600 text-white text-xs px-2 py-1 rounded"
-                      onClick={async () => {
-                        try {
-                          await api.approveMember(
-                            token,
-                            currentRoomId,
-                            pending.uid,
-                          );
-                          setMsg("申請承認");
-                        } catch (e: any) {
-                          alert(e.message);
-                        }
-                      }}
-                    >
-                      承認
-                    </button>
-                    <button
-                      className="bg-red-400 hover:bg-red-500 text-white text-xs px-2 py-1 rounded"
-                      onClick={async () => {
-                        try {
-                          await api.rejectMember(
-                            token,
-                            currentRoomId,
-                            pending.uid,
-                          );
-                          setMsg("申請拒否");
-                        } catch (e: any) {
-                          alert(e.message);
-                        }
-                      }}
-                    >
-                      拒否
-                    </button>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      {currentRoomId && roomDetail && (
-        <div>
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">
-            ルーム: {roomDetail.name}
-          </h2>
-          <p className="text-gray-600 mb-2">
-            **説明:** {roomDetail.description}
-          </p>
-          <p className="text-gray-600 mb-2">
-            **作成者:** {roomDetail.created_by}
-          </p>
-          <div className="mb-4">
-            <span className="font-semibold text-gray-700">メンバー: </span>
-            {roomDetail.members.map((m: any) => (
-              <span
-                key={m.uid}
-                className={`inline-block mr-2 px-2 py-1 rounded-full text-sm ${
-                  m.uid === me.uid
-                    ? "bg-blue-100 text-blue-800 font-bold"
-                    : "bg-gray-200 text-gray-700"
-                }`}
-              >
-                {m.uid}
-              </span>
-            ))}
-          </div>
-          <div className="flex space-x-3 mb-6">
-            <button
-              className="bg-gray-400 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-md shadow-sm transition"
-              onClick={() => setCurrentRoomId(null)}
-            >
-              ルーム一覧に戻る
-            </button>
-            <button
-              className="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm transition"
-              onClick={async () => {
-                try {
-                  await api.leaveRoom(token, currentRoomId);
-                  setCurrentRoomId(null);
-                  setMsg("退会");
-                } catch (e: any) {
-                  alert(e.message);
-                }
-              }}
-            >
-              ルーム退会
-            </button>
-          </div>
-
-          <h3 className="text-xl font-bold mb-3 text-gray-800">ポイント登録</h3>
-          <div className="space-y-2 mb-6">
-            {roomDetail.members.map((m: any) => (
-              <div key={m.uid} className="flex items-center gap-2">
-                <span className="w-20 text-gray-700">{m.uid}</span>
-                <input
-                  type="number"
-                  value={pointInputs[m.uid] || 0}
-                  onChange={(e) =>
-                    setPointInputs((x) => ({
-                      ...x,
-                      [m.uid]: Number(e.target.value),
-                    }))
-                  }
-                  className="w-24 p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            ))}
-            <button
-              onClick={async () => {
-                try {
-                  await api.addPoints(
-                    token,
-                    currentRoomId,
-                    roomDetail.members.map((m: any) => ({
-                      uid: m.uid,
-                      value: pointInputs[m.uid] || 0,
-                    })),
-                    roomDetail.members.map((m: any) => m.uid),
-                  );
-                  setPointInputs({});
-                  setMsg("ポイント登録");
-                } catch (e: any) {
-                  alert(e.message);
-                }
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm transition mt-3"
-            >
-              ポイント追加
-            </button>
-          </div>
-
-          <h3 className="text-xl font-bold mb-3 text-gray-800">ポイント履歴</h3>
-          <div className="space-y-4 mb-6">
-            {pointHistory.length === 0 && (
-              <p className="text-gray-500">ポイント履歴はありません。</p>
-            )}
-            {pointHistory.map((rec) => (
-              <div
-                key={rec.round_id}
-                className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white"
-              >
-                <div className="text-gray-700 text-sm mb-2">
-                  <span className="font-semibold">日時: </span>
-                  {new Date(rec.created_at).toLocaleString()}
-                </div>
-                <div className="flex flex-wrap gap-x-4 mb-2">
-                  {rec.points.map((p: any) => (
-                    <span key={p.uid} className="text-gray-800">
-                      **{p.uid}**: {p.value}pt
-                    </span>
-                  ))}
-                </div>
-                <div className="text-gray-600 text-sm mb-3">
-                  <span className="font-semibold">承認者: </span>
-                  {rec.approved_by.length > 0
-                    ? rec.approved_by.join(", ")
-                    : "なし"}
-                </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={async () => {
-                      try {
-                        await api.approvePoint(
-                          token,
-                          currentRoomId,
-                          rec.round_id,
-                        );
-                        setMsg("承認");
-                      } catch (e: any) {
-                        alert(e.message);
-                      }
-                    }}
-                    className="bg-green-500 hover:bg-green-600 text-white text-sm py-1 px-3 rounded-md transition"
-                  >
-                    承認
-                  </button>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await api.deletePointRecord(
-                          token,
-                          currentRoomId,
-                          rec.round_id,
-                        );
-                        setMsg("削除");
-                      } catch (e: any) {
-                        alert(e.message);
-                      }
-                    }}
-                    className="bg-red-400 hover:bg-red-500 text-white text-sm py-1 px-3 rounded-md transition"
-                  >
-                    削除
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <h3 className="text-xl font-bold mb-3 text-gray-800">精算</h3>
-          <div className="flex flex-col sm:flex-row gap-3 mb-4">
-            <select
-              value={settleInput.to_uid}
-              onChange={(e) =>
-                setSettleInput((s) => ({ ...s, to_uid: e.target.value }))
-              }
-              className="flex-grow p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">--相手を選ぶ--</option>
-              {roomDetail.members
-                .filter((m: any) => m.uid !== me.uid)
-                .map((m: any) => (
-                  <option value={m.uid} key={m.uid}>
-                    {m.uid}
-                  </option>
-                ))}
-            </select>
-            <input
-              type="number"
-              value={settleInput.amount}
-              onChange={(e) =>
-                setSettleInput((s) => ({
-                  ...s,
-                  amount: Number(e.target.value),
-                }))
-              }
-              className="w-24 p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-            />
-            <button
-              onClick={async () => {
-                try {
-                  if (!settleInput.to_uid || !settleInput.amount)
-                    throw new Error("相手と金額は必須");
-                  await api.settle(
-                    token,
-                    currentRoomId,
-                    settleInput.to_uid,
-                    settleInput.amount,
-                  );
-                  setSettleInput({ to_uid: "", amount: 0 });
-                  setMsg("精算");
-                } catch (e: any) {
-                  alert(e.message);
-                }
-              }}
-              className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm transition"
-            >
-              精算リクエスト
-            </button>
-          </div>
-          <h4 className="text-lg font-bold mb-3 text-gray-800">精算履歴</h4>
-          <div className="space-y-3">
-            {settleHistory.length === 0 && (
-              <p className="text-gray-500">精算履歴はありません。</p>
-            )}
-            {settleHistory.map((s, i) => (
-              <div
-                key={i}
-                className="p-3 border border-gray-200 rounded-lg bg-white flex justify-between items-center"
-              >
-                <span className="text-gray-700">
-                  <span className="font-medium">{s.from_uid}</span> →{" "}
-                  <span className="font-medium">{s.to_uid}</span> :{" "}
-                  <span className="font-bold">{s.amount}</span>円 [
-                  {s.approved ? "承認済" : "未承認"}]
-                </span>
-                {!s.approved && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        await api.approveSettlement(
-                          token,
-                          currentRoomId,
-                          s._id || s.settlement_id,
-                        );
-                        setMsg("精算承認");
-                      } catch (e: any) {
-                        alert(e.message);
-                      }
-                    }}
-                    className="bg-green-500 hover:bg-green-600 text-white text-sm py-1 px-3 rounded-md transition"
-                  >
-                    承認
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

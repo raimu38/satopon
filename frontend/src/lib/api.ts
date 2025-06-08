@@ -54,6 +54,9 @@ export const createRoom = (
 ) => api("/rooms", { method: "POST", token, body: room });
 export const listRooms = (token: string) => api("/rooms", { token });
 
+// --- Presence ---
+export const getPresence = (token: string, room_id: string) =>
+  api<string[]>(`/rooms/${room_id}/presence`, { token });
 export const getAllRooms = (token: string) => api("/rooms/all", { token });
 export const getRoom = (token: string, room_id: string) =>
   api(`/rooms/${room_id}`, { token });
@@ -128,11 +131,16 @@ export const deletePointRecord = (
 export const startPointRound = (token: string, room_id: string) =>
   api(`/rooms/${room_id}/points/start`, { method: "POST", token });
 
-export const submitPoint = (token: string, room_id: string, value: number) =>
+export const submitPoint = (
+  token: string,
+  room_id: string,
+  uid: string,
+  value: number,
+) =>
   api(`/rooms/${room_id}/points/submit`, {
     method: "POST",
     token,
-    body: { value },
+    body: { uid, value },
   });
 
 export const finalizePointRound = (token: string, room_id: string) =>
