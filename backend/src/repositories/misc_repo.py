@@ -1,70 +1,71 @@
+# src/repositories/misc_repo.py
+
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from typing import Optional, List
+from typing import List, Optional
 from datetime import datetime
+from bson import ObjectId
+import redis.asyncio as redis
+
 
 class PointRecordRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db.point_records
 
-    async def create(self, data: dict):
-        data["created_at"] = datetime.utcnow()
-        data["is_deleted"] = False
+    async def create(self, data: dict) -> str:
+        data.setdefault("created_at", datetime.utcnow())
+        data.setdefault("is_deleted", False)
         await self.collection.insert_one(data)
         return data["round_id"]
 
-# repositories/misc_repo.py
-
-# src/repositories/misc_repo.py か settlement_repo.py あたり
-
-# src/repositories/misc_repo.py か settlement_repo.py 内
-
     async def history(self, room_id: str) -> List[dict]:
-        cursor = self.collection.find({"room_id": room_id, "is_deleted": False})
+        cursor = self.collection.find(
+            {"room_id": room_id, "is_deleted": False}
+        )
         items = await cursor.to_list(length=100)
         for item in items:
-            # _id を文字列化して settlement_id に乗せ替え
-            if "_id" in item:
-                item["settlement_id"] = str(item["_id"])
-                del item["_id"]
+            # ObjectId を取り除く
+            item.pop("_id", None)
         return items
-    
-    async def logical_delete(self, room_id: str, round_id: str) -> bool:
-        result = await self.collection.update_one(
-            {"room_id": room_id, "round_id": round_id}, {"$set": {"is_deleted": True}}
-        )
-        return result.modified_count == 1
-
-    async def find_one(self, room_id: str, round_id: str) -> Optional[dict]:
-        return await self.collection.find_one({
-            "room_id": room_id,
-            "round_id": round_id,
-            "is_deleted": False
-        })
-
-    async def add_approval(self, room_id: str, round_id: str, uid: str):
-        result = await self.collection.update_one(
-            {"room_id": room_id, "round_id": round_id},
-            {"$addToSet": {"approved_by": uid}}
-        )
-        return result.modified_count == 1
 
     async def history_by_uid(self, uid: str) -> List[dict]:
-        cursor = self.collection.find({"points.uid": uid, "is_deleted": False})
-        return await cursor.to_list(length=100)
+        cursor = self.collection.find(
+            {"points.uid": uid, "is_deleted": False}
+        )
+        items = await cursor.to_list(length=100)
+        for item in items:
+            item.pop("_id", None)
+        return items
+
+    async def find_one(self, room_id: str, round_id: str) -> Optional[dict]:
+        item = await self.collection.find_one({
+            "room_id": room_id,
+            "round_id": round_id,
+            "is_deleted": False,
+        })
+        if item:
+            item.pop("_id", None)
+        return item
+
+    async def logical_delete(self, room_id: str, round_id: str) -> bool:
+        result = await self.collection.update_one(
+            {"room_id": room_id, "round_id": round_id},
+            {"$set": {"is_deleted": True}}
+        )
+        return result.modified_count == 1
+
 
 class SettlementRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db.settlements
 
-    async def create(self, data: dict):
-        data["created_at"] = datetime.utcnow()
-        data["is_deleted"] = False
-        data["approved"] = False
-        await self.collection.insert_one(data)
-        return str(data["_id"])
+    async def create(self, data: dict) -> str:
+        data.setdefault("created_at", datetime.utcnow())
+        data.setdefault("is_deleted", False)
+        data.setdefault("approved", False)
+        result = await self.collection.insert_one(data)
+        return str(result.inserted_id)
 
-    async def approve(self, settlement_id: str):
-        from bson import ObjectId
+    async def approve(self, settlement_id: str) -> bool:
         result = await self.collection.update_one(
             {"_id": ObjectId(settlement_id), "is_deleted": False},
             {"$set": {"approved": True, "approved_at": datetime.utcnow()}}
@@ -72,24 +73,24 @@ class SettlementRepository:
         return result.modified_count == 1
 
     async def history(self, room_id: str) -> List[dict]:
-        cursor = self.collection.find({"room_id": room_id, "is_deleted": False})
+        cursor = self.collection.find(
+            {"room_id": room_id, "is_deleted": False}
+        )
         items = await cursor.to_list(length=100)
         for item in items:
-            item["settlement_id"] = str(item["_id"])
-            del item["_id"]
+            item["settlement_id"] = str(item.pop("_id"))
         return items
 
     async def history_by_uid(self, uid: str) -> List[dict]:
-        cursor = self.collection.find(
-            {"$or": [{"from_uid": uid}, {"to_uid": uid}], "is_deleted": False}
-        )
-        return await cursor.to_list(length=100)
+        cursor = self.collection.find({
+            "$or": [{"from_uid": uid}, {"to_uid": uid}],
+            "is_deleted": False
+        })
+        items = await cursor.to_list(length=100)
+        for item in items:
+            item["settlement_id"] = str(item.pop("_id"))
+        return items
 
-
-
-# src/repositories/misc_repo.py
-
-import redis.asyncio as redis
 
 class SettlementCacheRepository:
     def __init__(self, redis_client: redis.Redis):
@@ -98,9 +99,8 @@ class SettlementCacheRepository:
     def _key(self, room_id: str, from_uid: str, to_uid: str) -> str:
         return f"settle:{room_id}:{from_uid}->{to_uid}"
 
-    async def cache_request(self, room_id: str, from_uid: str, to_uid: str, amount: int):
+    async def cache_request(self, room_id: str, from_uid: str, to_uid: str, amount: int) -> None:
         k = self._key(room_id, from_uid, to_uid)
-        # Hash にして TTL 180 秒
         await self.redis.hset(k, mapping={
             "room_id": room_id,
             "from_uid": from_uid,
@@ -112,6 +112,7 @@ class SettlementCacheRepository:
     async def get_request(self, room_id: str, from_uid: str, to_uid: str):
         k = self._key(room_id, from_uid, to_uid)
         data = await self.redis.hgetall(k)
+        # decode_responses=True の場合は str キー／値なので 'amount' でチェック
         if not data or "amount" not in data:
             return None
         return {
@@ -120,7 +121,46 @@ class SettlementCacheRepository:
             "to_uid": data["to_uid"],
             "amount": int(data["amount"]),
         }
-
-    async def clear_request(self, room_id: str, from_uid: str, to_uid: str):
+    async def clear_request(self, room_id: str, from_uid: str, to_uid: str) -> None:
         k = self._key(room_id, from_uid, to_uid)
         await self.redis.delete(k)
+
+
+class RoundCacheRepository:
+    def __init__(self, redis_client: redis.Redis):
+        self.redis = redis_client
+
+    def _prefix(self, room_id: str) -> str:
+        return f"points:{room_id}"
+
+    async def start(self, room_id: str, round_id: str) -> None:
+        p = self._prefix(room_id)
+        await self.redis.hset(p, mapping={"round_id": round_id})
+        await self.redis.delete(f"{p}:submissions", f"{p}:approvals")
+
+    async def get_round_id(self, room_id: str) -> Optional[str]:
+        val = await self.redis.hget(self._prefix(room_id), "round_id")
+        return val.decode() if val else None
+
+    async def add_submission(self, room_id: str, uid: str, value: int) -> Optional[str]:
+        p = self._prefix(room_id)
+        round_id = await self.get_round_id(room_id)
+        if not round_id:
+            return None
+        await self.redis.hset(f"{p}:submissions", uid, value)
+        return round_id
+
+    async def get_submissions(self, room_id: str) -> dict[str, int]:
+        data = await self.redis.hgetall(f"{self._prefix(room_id)}:submissions")
+        return {k.decode(): int(v) for k, v in data.items()}
+
+    async def add_approval(self, room_id: str, uid: str) -> None:
+        await self.redis.sadd(f"{self._prefix(room_id)}:approvals", uid)
+
+    async def get_approvals(self, room_id: str) -> List[str]:
+        members = await self.redis.smembers(f"{self._prefix(room_id)}:approvals")
+        return [m.decode() for m in members]
+
+    async def clear(self, room_id: str) -> None:
+        p = self._prefix(room_id)
+        await self.redis.delete(p, f"{p}:submissions", f"{p}:approvals")

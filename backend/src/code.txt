@@ -8,10 +8,20 @@
 
 --- FILE: ./api/misc.py ---
 
+# src/api/misc_api.py
+
 from fastapi import APIRouter, Depends, HTTPException
-from src.schemas import SettlementCreate, PointRegisterRequest, PointInput
+from functools import lru_cache
+from datetime import datetime
+
+from src.schemas import (
+    SettlementCreate,
+    PointRegisterRequest,
+    PointInput,
+)
 from src.utils import get_current_uid
 from src.db import get_db, get_redis
+
 from src.repositories.misc_repo import (
     PointRecordRepository,
     SettlementRepository,
@@ -19,25 +29,42 @@ from src.repositories.misc_repo import (
 )
 from src.repositories.room_repo import RoomRepository
 from src.repositories.round_cache_repo import RoundCacheRepository
-from src.services.misc_service import PointService, SettlementService
+
+from src.services.misc_service import (
+    PointService,
+    SettlementService,
+)
+
 from src.ws import send_event, broadcast_event_to_room
-from datetime import datetime
-from functools import lru_cache
+
+
 router = APIRouter()
 
 
+# ---- Dependency factories ----
+
 @lru_cache()
-def get_point_service():
+def get_point_service() -> PointService:
     mongo = get_db()
     cache = get_redis()
     return PointService(
-        PointRecordRepository(mongo),
-        RoomRepository(mongo),
-        RoundCacheRepository(cache),
+        point_repo=PointRecordRepository(mongo),
+        room_repo=RoomRepository(mongo),
+        cache_repo=RoundCacheRepository(cache),
     )
 
-def get_settlement_service(db=Depends(get_db)):
-    return SettlementService(SettlementRepository(db))
+@lru_cache()
+def get_settlement_service() -> SettlementService:
+    mongo = get_db()
+    cache = get_redis()
+    return SettlementService(
+        settle_repo=SettlementRepository(mongo),
+        cache_repo=SettlementCacheRepository(cache),
+        point_repo=PointRecordRepository(mongo),
+    )
+
+
+# ---- Point endpoints ----
 
 @router.post("/rooms/{room_id}/points")
 async def add_points(
@@ -46,12 +73,18 @@ async def add_points(
     current_uid: str = Depends(get_current_uid),
     service: PointService = Depends(get_point_service),
 ):
-    await service.add_points(room_id, data.points, data.approved_by)
+    # data.round_id, data.points, data.approved_by のまま渡す
+    await service.add_points(room_id, data.round_id, data.points, data.approved_by)
     return {"ok": True}
 
+
 @router.get("/rooms/{room_id}/points/history")
-async def point_history(room_id: str, service: PointService = Depends(get_point_service)):
+async def point_history(
+    room_id: str,
+    service: PointService = Depends(get_point_service),
+):
     return await service.history(room_id)
+
 
 @router.delete("/rooms/{room_id}/points/{round_id}")
 async def delete_point_record(
@@ -62,6 +95,75 @@ async def delete_point_record(
 ):
     await service.logical_delete(room_id, round_id, current_uid)
     return {"ok": True}
+
+
+@router.post("/rooms/{room_id}/points/start")
+async def start_point_round(
+    room_id: str,
+    service: PointService = Depends(get_point_service),
+):
+    await service.start_round(room_id)
+    return {"ok": True}
+
+
+@router.post("/rooms/{room_id}/points/submit")
+async def submit_point(
+    room_id: str,
+    data: PointInput,
+    current_uid: str = Depends(get_current_uid),
+    service: PointService = Depends(get_point_service),
+):
+    await service.submit_score(room_id, current_uid, data.value)
+    return {"ok": True}
+
+
+@router.post("/rooms/{room_id}/points/finalize")
+async def finalize_point_round(
+    room_id: str,
+    service: PointService = Depends(get_point_service),
+):
+    return await service.finalize_round(room_id)
+
+
+@router.post("/rooms/{room_id}/points/cancel")
+async def cancel_point_round(
+    room_id: str,
+    reason: str,
+    service: PointService = Depends(get_point_service),
+):
+    await service.cancel_round(room_id, reason)
+    return {"ok": True}
+
+
+@router.post("/rooms/{room_id}/points/{round_id}/approve")
+async def approve_point_record(
+    room_id: str,
+    round_id: str,
+    current_uid: str = Depends(get_current_uid),
+    service: PointService = Depends(get_point_service),
+):
+    await service.approve(room_id, round_id, current_uid)
+    return {"ok": True}
+
+
+@router.get("/rooms/{room_id}/points/{round_id}/status")
+async def point_approval_status(
+    room_id: str,
+    round_id: str,
+    service: PointService = Depends(get_point_service),
+):
+    return await service.get_approval_status(room_id, round_id)
+
+
+@router.get("/users/me/points/history")
+async def user_point_history(
+    current_uid: str = Depends(get_current_uid),
+    service: PointService = Depends(get_point_service),
+):
+    return await service.history_by_uid(current_uid)
+
+
+# ---- Settlement endpoints ----
 
 @router.post("/rooms/{room_id}/settle")
 async def settle(
@@ -78,208 +180,55 @@ async def settle(
     })
     return {"ok": True}
 
-@router.post("/rooms/{room_id}/settle/{settlement_id}/approve")
-async def approve_settlement(
-    room_id: str,
-    settlement_id: str,
-    current_uid: str = Depends(get_current_uid),
-    service: SettlementService = Depends(get_settlement_service),
-):
-    await service.approve(settlement_id)
-    return {"ok": True}
 
-@router.get("/rooms/{room_id}/settle/history")
-async def settlement_history(room_id: str, service: SettlementService = Depends(get_settlement_service)):
-    return await service.history(room_id)
-
-@router.post("/rooms/{room_id}/points/{round_id}/approve")
-async def approve_point_record(
-    room_id: str,
-    round_id: str,
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
-):
-    await service.approve(room_id, round_id, current_uid)
-    return {"ok": True}
-
-@router.get("/rooms/{room_id}/points/{round_id}/status")
-async def point_approval_status(
-    room_id: str,
-    round_id: str,
-    service: PointService = Depends(get_point_service),
-):
-    return await service.get_approval_status(room_id, round_id)
-
-# ユーザーごとの全ポイント記録
-@router.get("/users/me/points/history")
-async def user_point_history(
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service)
-):
-    return await service.history_by_uid(current_uid)
-
-# ユーザーごとの全精算記録
-@router.get("/users/me/settle/history")
-async def user_settle_history(
-    current_uid: str = Depends(get_current_uid),
-    service: SettlementService = Depends(get_settlement_service)
-):
-    return await service.history_by_uid(current_uid)
-
-# ——— 以下を追加 ———
-
-@router.post("/rooms/{room_id}/points/start")
-async def start_point_round(
-    room_id: str,
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
-):
-    await service.start_round(room_id)
-    return {"ok": True}
-
-@router.post("/rooms/{room_id}/points/submit")
-async def submit_point(
-    room_id: str,
-    data: PointInput,        # {uid, value}
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
-):
-    await service.submit_score(room_id, current_uid, data.value)
-    return {"ok": True}
-
-@router.post("/rooms/{room_id}/points/finalize")
-async def finalize_point_round(
-    room_id: str,
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
-):
-    return await service.finalize_round(room_id)
-
-@router.post("/rooms/{room_id}/points/cancel")
-async def cancel_point_round(
-    room_id: str,
-    reason: str,
-    service: PointService = Depends(get_point_service),
-):
-    await service.cancel_round(room_id, reason)
-    return {"ok": True}
-
-
-# --- ① 精算リクエストをキャッシュに保存し、相手に通知 ---
 @router.post("/rooms/{room_id}/settle/request")
 async def request_settlement(
     room_id: str,
     data: SettlementCreate,
     current_uid: str = Depends(get_current_uid),
-    redis_client=Depends(get_redis),
+    service: SettlementService = Depends(get_settlement_service),
 ):
-    cache = SettlementCacheRepository(redis_client)
-
-    # 既に保留中か？
-    exists = await cache.get_request(room_id, current_uid, data.to_uid)
-    if exists:
-        raise HTTPException(400, detail="既にリクエスト中です")
-
-    # 自分の残高バリデーションはフロント or 別エンドポイントで行えます
-    # とりあえずキャッシュ登録
-    await cache.cache_request(room_id, current_uid, data.to_uid, data.amount)
-
-    # WebSocket で相手に届く通知
-    await send_event(data.to_uid, {
-        "type": "settle_requested",
-        "room_id": room_id,
-        "from_uid": current_uid,
-        "to_uid": data.to_uid,
-        "amount": data.amount,
-    })
+    await service.request(room_id, current_uid, data.to_uid, data.amount)
     return {"ok": True}
 
-# --- ② 承認: キャッシュ→永続化→通知 ---
+
 @router.post("/rooms/{room_id}/settle/request/{from_uid}/approve")
-async def approve_settlement(
+async def approve_settlement_request(
     room_id: str,
     from_uid: str,
     current_uid: str = Depends(get_current_uid),
-    redis_client=Depends(get_redis),
-    point_svc: PointService = Depends(get_point_service),
-    persist_svc: SettlementService = Depends(get_settlement_service),
+    service: SettlementService = Depends(get_settlement_service),
 ):
-    cache = SettlementCacheRepository(redis_client)
-
-    # キャッシュからリクエスト取得
-    req = await cache.get_request(room_id, from_uid, current_uid)
-    if not req:
-        raise HTTPException(404, detail="リクエストが見つからないか期限切れです")
-
-    amount = req["amount"]
-
-    # (A) 送信元(from_uid)の残高チェック
-    hist_from = await point_svc.history_by_uid(from_uid)
-    bal_from = sum(
-        p["value"]
-        for rec in hist_from
-        for p in rec["points"]
-        if p["uid"] == from_uid
-    )
-    if bal_from + amount > 0:
-        raise HTTPException(400, detail="送信元の残高不足です")
-    
-    # (B) 受信側(current_uid)の残高制限チェック
-    hist_to = await point_svc.history_by_uid(current_uid)
-    bal_to = sum(
-        p["value"]
-        for rec in hist_to
-        for p in rec["points"]
-        if p["uid"] == current_uid
-    )
-    if bal_to - amount < 0:
-        raise HTTPException(400, detail="受信側の残高制限を超えます")
-
-    # 永続化: MongoDB に２つのポイントエントリを作成
-    round_id = f"SETTLE_{from_uid}_{current_uid}_{int(datetime.utcnow().timestamp())}"
-    await point_svc.point_repo.create({
-        "room_id": room_id,
-        "round_id": round_id,
-        "points": [
-            {"uid": from_uid,   "value": amount},
-            {"uid": current_uid, "value": -amount},
-        ],
-        "approved_by": [from_uid, current_uid],
-        "created_at": datetime.utcnow(),
-        "is_deleted": False,
-    })
-
-    # キャッシュ削除
-    await cache.clear_request(room_id, from_uid, current_uid)
-
-    # ルーム全員へ完了通知
-    await broadcast_event_to_room(room_id, {
-        "type": "settle_completed",
-        "room_id": room_id,
-        "from_uid": from_uid,
-        "to_uid": current_uid,
-        "amount": amount,
-    })
+    await service.approve_request(room_id, from_uid, current_uid)
     return {"ok": True}
 
-# --- ③ 拒否: キャッシュ削除＋通知 ---
+
 @router.post("/rooms/{room_id}/settle/request/{from_uid}/reject")
-async def reject_settlement(
+async def reject_settlement_request(
     room_id: str,
     from_uid: str,
     current_uid: str = Depends(get_current_uid),
-    redis_client=Depends(get_redis),
+    service: SettlementService = Depends(get_settlement_service),
 ):
-    cache = SettlementCacheRepository(redis_client)
-    # キャッシュを消すだけ
-    await cache.clear_request(room_id, from_uid, current_uid)
-    # 送信元へ拒否通知
-    await send_event(from_uid, {
-        "type": "settle_rejected",
-        "room_id": room_id,
-        "by_uid": current_uid,
-    })
+    await service.reject_request(room_id, from_uid, current_uid)
     return {"ok": True}
+
+
+@router.get("/rooms/{room_id}/settle/history")
+async def settlement_history(
+    room_id: str,
+    service: SettlementService = Depends(get_settlement_service),
+):
+    return await service.history(room_id)
+
+
+@router.get("/users/me/settle/history")
+async def user_settle_history(
+    current_uid: str = Depends(get_current_uid),
+    service: SettlementService = Depends(get_settlement_service),
+):
+    return await service.history_by_uid(current_uid)
+
 
 
 --- FILE: ./api/room.py ---
@@ -621,73 +570,74 @@ class SettlementModel(BaseModel):
 
 --- FILE: ./repositories/misc_repo.py ---
 
+# src/repositories/misc_repo.py
+
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from typing import Optional, List
+from typing import List, Optional
 from datetime import datetime
+from bson import ObjectId
+import redis.asyncio as redis
+
 
 class PointRecordRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db.point_records
 
-    async def create(self, data: dict):
-        data["created_at"] = datetime.utcnow()
-        data["is_deleted"] = False
+    async def create(self, data: dict) -> str:
+        data.setdefault("created_at", datetime.utcnow())
+        data.setdefault("is_deleted", False)
         await self.collection.insert_one(data)
         return data["round_id"]
 
-# repositories/misc_repo.py
-
-# src/repositories/misc_repo.py か settlement_repo.py あたり
-
-# src/repositories/misc_repo.py か settlement_repo.py 内
-
     async def history(self, room_id: str) -> List[dict]:
-        cursor = self.collection.find({"room_id": room_id, "is_deleted": False})
+        cursor = self.collection.find(
+            {"room_id": room_id, "is_deleted": False}
+        )
         items = await cursor.to_list(length=100)
         for item in items:
-            # _id を文字列化して settlement_id に乗せ替え
-            if "_id" in item:
-                item["settlement_id"] = str(item["_id"])
-                del item["_id"]
+            # ObjectId を取り除く
+            item.pop("_id", None)
         return items
-    
-    async def logical_delete(self, room_id: str, round_id: str) -> bool:
-        result = await self.collection.update_one(
-            {"room_id": room_id, "round_id": round_id}, {"$set": {"is_deleted": True}}
-        )
-        return result.modified_count == 1
-
-    async def find_one(self, room_id: str, round_id: str) -> Optional[dict]:
-        return await self.collection.find_one({
-            "room_id": room_id,
-            "round_id": round_id,
-            "is_deleted": False
-        })
-
-    async def add_approval(self, room_id: str, round_id: str, uid: str):
-        result = await self.collection.update_one(
-            {"room_id": room_id, "round_id": round_id},
-            {"$addToSet": {"approved_by": uid}}
-        )
-        return result.modified_count == 1
 
     async def history_by_uid(self, uid: str) -> List[dict]:
-        cursor = self.collection.find({"points.uid": uid, "is_deleted": False})
-        return await cursor.to_list(length=100)
+        cursor = self.collection.find(
+            {"points.uid": uid, "is_deleted": False}
+        )
+        items = await cursor.to_list(length=100)
+        for item in items:
+            item.pop("_id", None)
+        return items
+
+    async def find_one(self, room_id: str, round_id: str) -> Optional[dict]:
+        item = await self.collection.find_one({
+            "room_id": room_id,
+            "round_id": round_id,
+            "is_deleted": False,
+        })
+        if item:
+            item.pop("_id", None)
+        return item
+
+    async def logical_delete(self, room_id: str, round_id: str) -> bool:
+        result = await self.collection.update_one(
+            {"room_id": room_id, "round_id": round_id},
+            {"$set": {"is_deleted": True}}
+        )
+        return result.modified_count == 1
+
 
 class SettlementRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db.settlements
 
-    async def create(self, data: dict):
-        data["created_at"] = datetime.utcnow()
-        data["is_deleted"] = False
-        data["approved"] = False
-        await self.collection.insert_one(data)
-        return str(data["_id"])
+    async def create(self, data: dict) -> str:
+        data.setdefault("created_at", datetime.utcnow())
+        data.setdefault("is_deleted", False)
+        data.setdefault("approved", False)
+        result = await self.collection.insert_one(data)
+        return str(result.inserted_id)
 
-    async def approve(self, settlement_id: str):
-        from bson import ObjectId
+    async def approve(self, settlement_id: str) -> bool:
         result = await self.collection.update_one(
             {"_id": ObjectId(settlement_id), "is_deleted": False},
             {"$set": {"approved": True, "approved_at": datetime.utcnow()}}
@@ -695,24 +645,24 @@ class SettlementRepository:
         return result.modified_count == 1
 
     async def history(self, room_id: str) -> List[dict]:
-        cursor = self.collection.find({"room_id": room_id, "is_deleted": False})
+        cursor = self.collection.find(
+            {"room_id": room_id, "is_deleted": False}
+        )
         items = await cursor.to_list(length=100)
         for item in items:
-            item["settlement_id"] = str(item["_id"])
-            del item["_id"]
+            item["settlement_id"] = str(item.pop("_id"))
         return items
 
     async def history_by_uid(self, uid: str) -> List[dict]:
-        cursor = self.collection.find(
-            {"$or": [{"from_uid": uid}, {"to_uid": uid}], "is_deleted": False}
-        )
-        return await cursor.to_list(length=100)
+        cursor = self.collection.find({
+            "$or": [{"from_uid": uid}, {"to_uid": uid}],
+            "is_deleted": False
+        })
+        items = await cursor.to_list(length=100)
+        for item in items:
+            item["settlement_id"] = str(item.pop("_id"))
+        return items
 
-
-
-# src/repositories/misc_repo.py
-
-import redis.asyncio as redis
 
 class SettlementCacheRepository:
     def __init__(self, redis_client: redis.Redis):
@@ -721,9 +671,8 @@ class SettlementCacheRepository:
     def _key(self, room_id: str, from_uid: str, to_uid: str) -> str:
         return f"settle:{room_id}:{from_uid}->{to_uid}"
 
-    async def cache_request(self, room_id: str, from_uid: str, to_uid: str, amount: int):
+    async def cache_request(self, room_id: str, from_uid: str, to_uid: str, amount: int) -> None:
         k = self._key(room_id, from_uid, to_uid)
-        # Hash にして TTL 180 秒
         await self.redis.hset(k, mapping={
             "room_id": room_id,
             "from_uid": from_uid,
@@ -735,18 +684,58 @@ class SettlementCacheRepository:
     async def get_request(self, room_id: str, from_uid: str, to_uid: str):
         k = self._key(room_id, from_uid, to_uid)
         data = await self.redis.hgetall(k)
-        if not data or "amount" not in data:
+        if not data or b"amount" not in data:
             return None
         return {
-            "room_id": data["room_id"],
-            "from_uid": data["from_uid"],
-            "to_uid": data["to_uid"],
-            "amount": int(data["amount"]),
+            "room_id": data[b"room_id"].decode(),
+            "from_uid": data[b"from_uid"].decode(),
+            "to_uid": data[b"to_uid"].decode(),
+            "amount": int(data[b"amount"]),
         }
 
-    async def clear_request(self, room_id: str, from_uid: str, to_uid: str):
+    async def clear_request(self, room_id: str, from_uid: str, to_uid: str) -> None:
         k = self._key(room_id, from_uid, to_uid)
         await self.redis.delete(k)
+
+
+class RoundCacheRepository:
+    def __init__(self, redis_client: redis.Redis):
+        self.redis = redis_client
+
+    def _prefix(self, room_id: str) -> str:
+        return f"points:{room_id}"
+
+    async def start(self, room_id: str, round_id: str) -> None:
+        p = self._prefix(room_id)
+        await self.redis.hset(p, mapping={"round_id": round_id})
+        await self.redis.delete(f"{p}:submissions", f"{p}:approvals")
+
+    async def get_round_id(self, room_id: str) -> Optional[str]:
+        val = await self.redis.hget(self._prefix(room_id), "round_id")
+        return val.decode() if val else None
+
+    async def add_submission(self, room_id: str, uid: str, value: int) -> Optional[str]:
+        p = self._prefix(room_id)
+        round_id = await self.get_round_id(room_id)
+        if not round_id:
+            return None
+        await self.redis.hset(f"{p}:submissions", uid, value)
+        return round_id
+
+    async def get_submissions(self, room_id: str) -> dict[str, int]:
+        data = await self.redis.hgetall(f"{self._prefix(room_id)}:submissions")
+        return {k.decode(): int(v) for k, v in data.items()}
+
+    async def add_approval(self, room_id: str, uid: str) -> None:
+        await self.redis.sadd(f"{self._prefix(room_id)}:approvals", uid)
+
+    async def get_approvals(self, room_id: str) -> List[str]:
+        members = await self.redis.smembers(f"{self._prefix(room_id)}:approvals")
+        return [m.decode() for m in members]
+
+    async def clear(self, room_id: str) -> None:
+        p = self._prefix(room_id)
+        await self.redis.delete(p, f"{p}:submissions", f"{p}:approvals")
 
 
 --- FILE: ./repositories/room_repo.py ---
@@ -1012,43 +1001,53 @@ class SettlementHistoryResponse(BaseModel):
 
 # src/services/misc_service.py
 
-from src.repositories.misc_repo import PointRecordRepository, SettlementRepository
-from src.repositories.room_repo import RoomRepository
-from fastapi import HTTPException
-from src.ws import broadcast_event_to_room, send_event
-from typing import Dict, List
-from datetime import datetime
 import asyncio
-import random
-import string
+from datetime import datetime
+from fastapi import HTTPException
 
-def _make_round_id(length: int = 6) -> str:
+from src.repositories.misc_repo import (
+    PointRecordRepository,
+    SettlementRepository,
+    SettlementCacheRepository,
+    RoundCacheRepository,
+)
+from src.repositories.room_repo import RoomRepository
+from src.ws import broadcast_event_to_room, send_event
+
+def _make_round_id(prefix: str, length: int = 6) -> str:
+    import random, string
     chars = string.ascii_uppercase + string.digits
-    return ''.join(random.choices(chars, k=length))
+    rnd = ''.join(random.choices(chars, k=length))
+    return f"{prefix}-{rnd}"
+
 
 class PointService:
     def __init__(
         self,
         point_repo: PointRecordRepository,
         room_repo: RoomRepository,
-        cache_repo  # RoundCacheRepository
+        cache_repo,  # RoundCacheRepository
     ):
         self.point_repo = point_repo
         self.room_repo = room_repo
         self.cache = cache_repo
-        self._timeout_tasks: Dict[str, asyncio.Task] = {}
+        self._timeout_tasks: dict[str, asyncio.Task] = {}
 
-    async def add_points(self, room_id: str, round_id: str, points: List, approved_by: List[str]):
+    # ─── ユースケースメソッド ───
+
+    async def add_points(self, room_id: str, round_id: str, points: list, approved_by: list[str]):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
-            raise HTTPException(status_code=404, detail="Room not found")
+            raise HTTPException(404, "Room not found")
+
         members = {m["uid"] for m in room.get("members", [])}
         if members != set(approved_by):
-            raise HTTPException(status_code=400, detail="All members must approve the record.")
+            raise HTTPException(400, "All members must approve the record.")
+
         return await self.point_repo.create({
             "room_id": room_id,
             "round_id": round_id,
-            "points": [p.dict() for p in points],
+            "points": points,
             "approved_by": approved_by,
             "created_at": datetime.utcnow(),
             "is_deleted": False,
@@ -1063,24 +1062,26 @@ class PointService:
     async def logical_delete(self, room_id: str, round_id: str, current_uid: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
-            raise HTTPException(status_code=404, detail="Room not found")
+            raise HTTPException(404, "Room not found")
         if room["created_by"] != current_uid:
-            raise HTTPException(status_code=403, detail="Only room owner can delete point record")
+            raise HTTPException(403, "Only room owner can delete point record")
         return await self.point_repo.logical_delete(room_id, round_id)
 
     async def start_round(self, room_id: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
-            raise HTTPException(status_code=404, detail="Room not found")
-        # 既存ラウンドをクリア
+            raise HTTPException(404, "Room not found")
+
+        # キャッシュ初期化・新ラウンドID生成
         await self.cache.clear(room_id)
-        # 新ラウンド ID 発行・保存
-        round_id = _make_round_id()
+        round_id = _make_round_id("PON")
         await self.cache.start(room_id, round_id)
-        # タイムアウト監視タスク
-        if room_id in self._timeout_tasks:
-            self._timeout_tasks[room_id].cancel()
+
+        # タイムアウト監視をセット
+        if task := self._timeout_tasks.get(room_id):
+            task.cancel()
         self._timeout_tasks[room_id] = asyncio.create_task(self._watch_timeout(room_id))
+
         # 開始通知
         await broadcast_event_to_room(room_id, {
             "type": "point_round_started",
@@ -1088,22 +1089,11 @@ class PointService:
             "round_id": round_id,
         })
 
-    async def _watch_timeout(self, room_id: str):
-        try:
-            await asyncio.sleep(180)
-            await self.cancel_round(room_id, reason="Timeout after 3 minutes")
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._timeout_tasks.pop(room_id, None)
-
     async def submit_score(self, room_id: str, uid: str, value: int):
-        # Redis にスコアを一時保存
         round_id = await self.cache.add_submission(room_id, uid, value)
         if not round_id:
-            raise HTTPException(status_code=400, detail="No active round")
+            raise HTTPException(400, "No active round")
 
-        # 提出通知
         await broadcast_event_to_room(room_id, {
             "type": "point_submitted",
             "room_id": room_id,
@@ -1111,16 +1101,18 @@ class PointService:
             "uid": uid,
         })
 
-        # 全員提出時の最終表通知
         room = await self.room_repo.get_by_id(room_id)
         subs = await self.cache.get_submissions(room_id)
+
+        # 全員提出チェック
         if len(subs) == len(room.get("members", [])):
             # タイマー取消
             if task := self._timeout_tasks.pop(room_id, None):
                 task.cancel()
+
             total = sum(subs.values())
             if total != 0:
-                # 合計がゼロでないならキャンセル
+                # キャンセル
                 await broadcast_event_to_room(room_id, {
                     "type": "point_round_cancelled",
                     "room_id": room_id,
@@ -1129,7 +1121,7 @@ class PointService:
                 })
                 await self.cache.clear(room_id)
             else:
-                # 合計ゼロなら最終表のみ通知（DB登録は承認後にまとめて）
+                # 最終表通知のみ（DB登録は approve 時にまとめて）
                 await broadcast_event_to_room(room_id, {
                     "type": "point_final_table",
                     "room_id": room_id,
@@ -1138,15 +1130,15 @@ class PointService:
                 })
 
     async def finalize_round(self, room_id: str):
-        # 合計チェックと最終表通知のみ
         subs = await self.cache.get_submissions(room_id)
         if not subs:
-            raise HTTPException(status_code=400, detail="No active round")
+            raise HTTPException(400, "No active round")
+
         total = sum(subs.values())
         round_id = await self.cache.get_round_id(room_id)
         if total != 0:
             await self.cancel_round(room_id, reason="Sum is not zero")
-            raise HTTPException(status_code=400, detail="Sum is not zero")
+            raise HTTPException(400, "Sum is not zero")
 
         await broadcast_event_to_room(room_id, {
             "type": "point_final_table",
@@ -1157,16 +1149,12 @@ class PointService:
         return {"round_id": round_id, "table": subs}
 
     async def approve(self, room_id: str, round_id: str, current_uid: str):
-        # Redis の approvals セットに追加
         await self.cache.add_approval(room_id, current_uid)
+        approvals = set(await self.cache.get_approvals(room_id))
 
-        # 全承認状況を取得
-        approvals = await self.cache.get_approvals(room_id)
-        approvals = set(approvals)
         room = await self.room_repo.get_by_id(room_id)
         members = {m["uid"] for m in room.get("members", [])}
 
-        # 各自の承認通知
         await broadcast_event_to_room(room_id, {
             "type": "point_approved",
             "room_id": room_id,
@@ -1174,10 +1162,9 @@ class PointService:
             "uid": current_uid,
         })
 
-        # 全員承認が揃ったらまとめて永続化
+        # 全員承認なら DB 永続化
         if approvals | {current_uid} == members:
             subs = await self.cache.get_submissions(room_id)
-            # MongoDB に一度だけ書き込む
             await self.point_repo.create({
                 "room_id": room_id,
                 "round_id": round_id,
@@ -1186,9 +1173,7 @@ class PointService:
                 "created_at": datetime.utcnow(),
                 "is_deleted": False,
             })
-            # キャッシュクリア
             await self.cache.clear(room_id)
-            # 完全承認完了通知
             await broadcast_event_to_room(room_id, {
                 "type": "point_fully_approved",
                 "room_id": room_id,
@@ -1197,20 +1182,20 @@ class PointService:
             })
 
     async def get_approval_status(self, room_id: str, round_id: str):
-        # Redis に残っていればそれ、なければ最終的に DB を参照
         approvals = await self.cache.get_approvals(room_id)
         if approvals:
-            return {"approved_by": list(approvals)}
-        # キャッシュに何もなければ既存レコードから
+            return {"approved_by": approvals}
+
         record = await self.point_repo.find_one(room_id, round_id)
         if not record:
-            raise HTTPException(status_code=404, detail="Record not found")
+            raise HTTPException(404, "Record not found")
         return {"approved_by": record.get("approved_by", [])}
 
     async def cancel_round(self, room_id: str, reason: str):
         round_id = await self.cache.get_round_id(room_id)
         if task := self._timeout_tasks.pop(room_id, None):
             task.cancel()
+
         await broadcast_event_to_room(room_id, {
             "type": "point_round_cancelled",
             "room_id": room_id,
@@ -1219,40 +1204,122 @@ class PointService:
         })
         await self.cache.clear(room_id)
 
+    # ─── 内部ユーティリティ ───
+
+    async def _watch_timeout(self, room_id: str):
+        try:
+            await asyncio.sleep(180)
+            await self.cancel_round(room_id, reason="Timeout after 3 minutes")
+        except asyncio.CancelledError:
+            pass
+
 
 class SettlementService:
-    def __init__(self, repo: SettlementRepository):
-        self.repo = repo
+    def __init__(
+        self,
+        settle_repo: SettlementRepository,
+        cache_repo: SettlementCacheRepository,
+        point_repo: PointRecordRepository,
+    ):
+        self.settle_repo = settle_repo
+        self.cache = cache_repo
+        self.point_repo = point_repo
 
     async def create(self, data: dict):
-        return await self.repo.create(data)
+        # シンプル精算（管理者承認不要な場合）
+        return await self.settle_repo.create(data)
 
-    async def approve(self, settlement_id: str):
-        return await self.repo.approve(settlement_id)
+    async def request(self, room_id: str, from_uid: str, to_uid: str, amount: int):
+        # 1) 既存リクエストの存在チェック
+        exists = await self.cache.get_request(room_id, from_uid, to_uid)
+        if exists:
+            raise HTTPException(400, "既にリクエスト中です")
+
+        # 2) キャッシュ登録 + TTL
+        await self.cache.cache_request(room_id, from_uid, to_uid, amount)
+
+        # 3) 通知
+        await send_event(to_uid, {
+            "type": "settle_requested",
+            "room_id": room_id,
+            "from_uid": from_uid,
+            "to_uid": to_uid,
+            "amount": amount,
+        })
+
+    async def approve_request(self, room_id: str, from_uid: str, to_uid: str):
+        # キャッシュ取得
+        req = await self.cache.get_request(room_id, from_uid, to_uid)
+        if not req:
+            raise HTTPException(404, "リクエストが見つからないか期限切れです")
+        amount = req["amount"]
+
+        # 残高検証
+        await self._validate_balances(from_uid, to_uid, amount)
+
+        # 永続化（PointRecord に２エントリ）
+        round_id = _make_round_id("SATO")
+        await self.point_repo.create({
+            "room_id": room_id,
+            "round_id": round_id,
+            "points": [
+                {"uid": from_uid,   "value": amount},
+                {"uid": to_uid,     "value": -amount},
+            ],
+            "approved_by": [from_uid, to_uid],
+            "created_at": datetime.utcnow(),
+            "is_deleted": False,
+        })
+
+        # キャッシュ削除
+        await self.cache.clear_request(room_id, from_uid, to_uid)
+
+        # 完了通知（ルーム全員へ）
+        await broadcast_event_to_room(room_id, {
+            "type": "settle_completed",
+            "room_id": room_id,
+            "from_uid": from_uid,
+            "to_uid": to_uid,
+            "amount": amount,
+        })
+
+        return round_id
+
+    async def reject_request(self, room_id: str, from_uid: str, to_uid: str):
+        # キャッシュ削除
+        await self.cache.clear_request(room_id, from_uid, to_uid)
+        # 拒否通知
+        await send_event(from_uid, {
+            "type": "settle_rejected",
+            "room_id": room_id,
+            "by_uid": to_uid,
+        })
 
     async def history(self, room_id: str):
-        return await self.repo.history(room_id)
+        return await self.settle_repo.history(room_id)
 
     async def history_by_uid(self, uid: str):
-        return await self.repo.history_by_uid(uid)
+        return await self.settle_repo.history_by_uid(uid)
 
+    # ─── 内部ユーティリティ ───
 
-    async def validate_request(self, room_id: str, from_uid: str, to_uid: str, amount: int):
-        # (1) 同じルームに属しているか
-        room = await self.room_repo.get_by_id(room_id)
-        members = {m["uid"] for m in room.get("members", [])}
-        if from_uid not in members or to_uid not in members:
-            raise HTTPException(400, "相手が同じルームにいません")
-        # (2) 送信元残高チェック
-        hist = await self.point_repo.history_by_uid(from_uid)
-        bal = sum(p.value for rec in hist for p in rec.points if p.uid == from_uid)
-        if bal + amount > 0:
-            raise HTTPException(400, "あなたの残高不足です")
-        # (3) 受信側残高チェック
-        hist2 = await self.point_repo.history_by_uid(to_uid)
-        bal2 = sum(p.value for rec in hist2 for p in rec.points if p.uid == to_uid)
-        if bal2 - amount < 0:
-            raise HTTPException(400, "相手の残高制限を超えます")
+    async def _validate_balances(self, from_uid: str, to_uid: str, amount: int):
+        bal_from = await self._get_balance(from_uid)
+        if bal_from + amount > 0:
+            raise HTTPException(400, "送信元の残高不足です")
+
+        bal_to = await self._get_balance(to_uid)
+        if bal_to - amount < 0:
+            raise HTTPException(400, "受信側の残高制限を超えます")
+
+    async def _get_balance(self, uid: str) -> int:
+        hist = await self.point_repo.history_by_uid(uid)
+        return sum(
+            p["value"]
+            for rec in hist
+            for p in rec["points"]
+            if p["uid"] == uid
+        )
 
 
 --- FILE: ./services/room_service.py ---
@@ -1280,6 +1347,10 @@ class RoomService:
         self.pending_timers = {}
 
     async def create_room(self, uid: str, data: dict):
+        name = data.get("name", "")
+        if not (1 <= len(name) <= 20):
+            raise HTTPException(status_code=400, detail="ルーム名は1〜20文字で指定してください")
+
         while True:
             room_id = generate_room_id(5)
             if not await self.room_repo.exists(room_id):
@@ -1311,7 +1382,13 @@ class RoomService:
         return await self.room_repo.list_rooms_for_user(uid)
 
     async def update_room(self, room_id: str, updates: dict, current_uid: str):
+
+        if "name" in updates:
+            name = updates["name"] or ""
+            if not (1 <= len(name) <= 20):
+                raise HTTPException(status_code=400, detail="ルーム名は1〜20文字で指定してください")
         room = await self.room_repo.get_by_id(room_id)
+
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
         if room["created_by"] != current_uid:

@@ -21,6 +21,10 @@ class RoomService:
         self.pending_timers = {}
 
     async def create_room(self, uid: str, data: dict):
+        name = data.get("name", "")
+        if not (1 <= len(name) <= 20):
+            raise HTTPException(status_code=400, detail="ルーム名は1〜20文字で指定してください")
+
         while True:
             room_id = generate_room_id(5)
             if not await self.room_repo.exists(room_id):
@@ -52,7 +56,13 @@ class RoomService:
         return await self.room_repo.list_rooms_for_user(uid)
 
     async def update_room(self, room_id: str, updates: dict, current_uid: str):
+
+        if "name" in updates:
+            name = updates["name"] or ""
+            if not (1 <= len(name) <= 20):
+                raise HTTPException(status_code=400, detail="ルーム名は1〜20文字で指定してください")
         room = await self.room_repo.get_by_id(room_id)
+
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
         if room["created_by"] != current_uid:
