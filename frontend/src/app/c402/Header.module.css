@@ -25,3 +25,59 @@
     background-position: 0% 50%;
   }
 }
+
+.createButtonBackground {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.3),
+    rgba(139, 92, 246, 0.2),
+    rgba(34, 211, 238, 0.3),
+    rgba(59, 130, 246, 0.3)
+  );
+  background-size: 400% 400%;
+  animation: waveFlow 15s ease-in-out infinite;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+@keyframes waveFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  25% {
+    background-position: 50% 60%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  75% {
+    background-position: 50% 40%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* hover 時にも波が加速する・ゆらぎが強調されるように */
+.createButtonBackground:hover {
+  animation: waveFlowHover 3s ease-in-out infinite;
+  transform: scale(1.06);
+  box-shadow: 0 0 16px rgba(96, 165, 250, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes waveFlowHover {
+  0% {
+    background-position: 0% 50%;
+  }
+  20% {
+    background-position: 40% 65%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  80% {
+    background-position: 60% 35%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}

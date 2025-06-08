@@ -30,8 +30,8 @@ async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
 
 // --- ユーザー ---
 export const getMe = (token: string) => api("/users/me", { token });
-export const updateMe = (token: string, display_name: string) =>
-  api("/users/me", { method: "PUT", token, body: { display_name } });
+export const updateMe = (token: string, data: { display_name: string }) =>
+  api("/users/me", { method: "PUT", token, body: data });
 export const getUserPointHistory = (token: string) =>
   api("/users/me/points/history", { token });
 export const getUserSettleHistory = (token: string) =>

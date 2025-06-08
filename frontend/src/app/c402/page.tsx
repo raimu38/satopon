@@ -21,7 +21,8 @@ export default function DashboardPage() {
     color_id: 1,
     description: "",
   });
-
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState("");
   // Modal states
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -185,22 +186,43 @@ export default function DashboardPage() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Room List Card */}
+      <main className="max-w-3xl mx-auto px-6 py-8 min-h-[80vh] flex flex-col justify-center">
+        <header className="mb-8 text-center">
+          <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+          <p className="text-gray-400 mt-2">
+            Access and manage your rooms efficiently
+          </p>
+        </header>
+
+        <div className="grid grid-cols-1 gap-6 h-full">
           <div
             onClick={() => setShowRoomModal(true)}
-            className="group cursor-pointer bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-lg rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all duration-300 hover:scale-101 hover:shadow-2xl hover:shadow-blue-500/20"
+            className="group cursor-pointer bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-lg rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all duration-300 hover:scale-101 hover:shadow-2xl hover:shadow-blue-500/20 h-full flex flex-col justify-between"
           >
-            <div className="flex items-center space-x-4 mb-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center group-hover:scale-101 transition-transform duration-300">
-                <span className="material-symbols-outlined text-white text-[28px]">
-                  meeting_room
+            {/* 通知バッジ */}
+            {rooms.some((r) => r.pending_members?.length > 0) && (
+              <div className="absolute top-4 right-4 flex items-center space-x-1">
+                <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
+                <span className="text-yellow-400 text-xs font-medium">
+                  Request
                 </span>
               </div>
-              <div>
-                <h3 className="text-lg font-semibold text-white">Room List</h3>
-                <p className="text-gray-400 text-sm">Browse and manage rooms</p>
+            )}
+            <div>
+              <div className="flex items-center space-x-4 mb-4">
+                <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center group-hover:scale-101 transition-transform duration-300">
+                  <span className="material-symbols-outlined text-white text-[28px]">
+                    meeting_room
+                  </span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">
+                    Room List
+                  </h3>
+                  <p className="text-gray-400 text-sm">
+                    Browse and manage rooms
+                  </p>
+                </div>
               </div>
             </div>
             <div className="flex items-center justify-between">
@@ -210,63 +232,12 @@ export default function DashboardPage() {
               <span className="text-gray-400 text-sm">Joined Rooms</span>
             </div>
           </div>
-
-          {/* Create Room Card */}
-          <div
-            onClick={() => setShowCreateModal(true)}
-            className="group cursor-pointer bg-gradient-to-br from-green-800/30 to-emerald-700/20 backdrop-blur-lg rounded-2xl p-6 border border-gray-700/50 hover:border-green-500/50 transition-all duration-300 hover:scale-101 hover:shadow-2xl hover:shadow-green-500/20"
-          >
-            <div className="flex items-center space-x-4 mb-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl flex items-center justify-center group-hover:scale-101 transition-transform duration-300">
-                <span className="material-symbols-outlined text-white text-[28px]">
-                  add
-                </span>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-white">
-                  Create Room
-                </h3>
-                <p className="text-gray-400 text-sm">Start a new room</p>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-green-400 text-sm font-medium">
-                New Room
-              </span>
-              <span className="material-symbols-outlined text-green-400 text-[20px] group-hover:translate-x-1 transition-transform duration-300">
-                arrow_forward_ios
-              </span>
-            </div>
-          </div>
-          {/* Stats Card */}
-          <div className="bg-gradient-to-br from-purple-800/30 to-pink-700/20 backdrop-blur-lg rounded-2xl p-6 border border-gray-700/50">
-            <div className="flex items-center space-x-4 mb-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
-                <span className="material-symbols-outlined text-white text-[28px]">
-                  bolt
-                </span>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-white">Activity</h3>
-                <p className="text-gray-400 text-sm">Online status</p>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold text-purple-400">
-                {Object.values(onlineUsers).reduce(
-                  (sum, users) => sum + users.size,
-                  0,
-                )}
-              </span>
-              <span className="text-gray-400 text-sm">Online Users</span>
-            </div>
-          </div>
         </div>
       </main>
 
       {/* Room Modal */}
       {showRoomModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center ">
           <div className="w-full h-screen bg-gray-800/5 flex justify-center  ">
             <div className="max-w-3xl w-full h-full flex flex-col">
               <div className="p-6 border-b border-gray-600">
@@ -524,34 +495,30 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Profile Modal */}
       {showProfileModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-gray-800 to-gray-700 rounded-2xl w-full max-w-md border border-gray-600">
+        <div className="fixed inset-0 bg-black/20  w-full h-screen flex items-center justify-center z-50 ">
+          <div className=" w-full  h-full  backdrop-blur-md">
             <div className="p-6">
-              <div className="flex justify-end items-center mb-6">
+              {/* 閉じるボタン */}
+              <div className="flex justify-end mb-6">
                 <button
                   onClick={() => setShowProfileModal(false)}
-                  className="w-8 h-8 bg-gray-600 hover:bg-gray-500 rounded-lg flex items-center justify-center transition-colors"
+                  className="w-8 h-8  hover:bg-gray-900 rounded-full flex items-center justify-center transition-colors"
+                  title="Close"
                 >
-                  <svg
-                    className="w-5 h-5 text-white"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
+                  <span className="material-symbols-outlined text-white text-xl">
+                    close
+                  </span>
                 </button>
               </div>
 
-              <div className="text-center mb-6">
-                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 overflow-hidden border-4 border-gray-600">
+              {/* アバターと名前編集 */}
+              <div className="text-center mb-8">
+                <div
+                  onClick={() => setIsEditingName(true)}
+                  className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 overflow-hidden border-4 border-gray-600 cursor-pointer hover:bg-gray-900/80 transition-colors duration-700"
+                  title="Click to edit display name"
+                >
                   {me.icon_url ? (
                     <img
                       src={me.icon_url}
@@ -559,65 +526,190 @@ export default function DashboardPage() {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-2xl">
+                    <div className="w-full h-full flex items-center justify-center text-white font-bold text-3xl">
                       {me.display_name?.charAt(0).toUpperCase()}
                     </div>
                   )}
                 </div>
-                <h3 className="text-lg font-semibold text-white">
-                  {me.display_name}
-                </h3>
-                <p className="text-gray-400 text-sm">{me.email}</p>
+
+                <div className="mx-auto max-w-4xl greid-col-3 p-4 rounded-xl bg-gradient-to-br from-gray-800/30 to-gray-600/20 backdrop-blur-md shadow-md">
+                  {isEditingName ? (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={editedName}
+                        onChange={(e) => setEditedName(e.target.value)}
+                        maxLength={50}
+                        className="w-full bg-gray-800/70 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors text-center"
+                      />
+                      <div className="flex justify-center space-x-4">
+                        <button
+                          onClick={async () => {
+                            if (!editedName.trim()) {
+                              alert("表示名を入力してください");
+                              return;
+                            }
+                            await api.updateMe(token, {
+                              display_name: editedName.trim(),
+                            });
+                            setMe({ ...me, display_name: editedName.trim() });
+                            setIsEditingName(false);
+                          }}
+                          className="text-green-400 hover:text-green-300 transition-colors"
+                          title="Save"
+                        >
+                          <span className="material-symbols-outlined text-[28px]">
+                            check
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditedName(me.display_name);
+                            setIsEditingName(false);
+                          }}
+                          className="text-gray-400 hover:text-gray-200 transition-colors"
+                          title="Cancel"
+                        >
+                          <span className="material-symbols-outlined text-[28px]">
+                            close
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className="text-xl font-semibold text-white">
+                        {me.display_name}
+                      </h3>
+                      <p className="text-gray-400 text-sm">{me.email}</p>
+                    </>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-3 mb-6">
-                <div className="flex justify-between items-center p-3 bg-gray-700/50 rounded-lg">
-                  <span className="text-gray-300">Joined Rooms</span>
-                  <span className="text-blue-400 font-semibold">
-                    {rooms.length}
-                  </span>
+              {/* Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 max-w-4xl mx-auto">
+                {/* Joined */}
+                <div className="p-4 rounded-xl bg-gradient-to-br from-blue-800/30 to-blue-600/20 border border-blue-500/20 backdrop-blur-md shadow-md">
+                  <div className="flex items-center space-x-3">
+                    <span className="material-symbols-outlined text-blue-300 text-2xl">
+                      meeting_room
+                    </span>
+                    <div>
+                      <div className="text-xl font-semibold text-white">
+                        {rooms.length}
+                      </div>
+                      <div className="text-sm text-blue-200">Joined Rooms</div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center p-3 bg-gray-700/50 rounded-lg">
-                  <span className="text-gray-300">Created Rooms</span>
-                  <span className="text-green-400 font-semibold">
-                    {myRooms.length}
-                  </span>
+
+                {/* Created */}
+                <div className="p-4 rounded-xl bg-gradient-to-br from-green-800/30 to-emerald-600/20 border border-green-500/20 backdrop-blur-md shadow-md">
+                  <div className="flex items-center space-x-3">
+                    <span className="material-symbols-outlined text-green-300 text-2xl">
+                      add_box
+                    </span>
+                    <div>
+                      <div className="text-xl font-semibold text-white">
+                        {myRooms.length}
+                      </div>
+                      <div className="text-sm text-green-200">
+                        Created Rooms
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center p-3 bg-gray-700/50 rounded-lg">
-                  <span className="text-gray-300">Status</span>
-                  <span className="text-green-400 font-semibold flex items-center">
-                    <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
-                    Online
-                  </span>
+
+                {/* Active */}
+                <div className="p-4 rounded-xl bg-gradient-to-br from-purple-800/30 to-pink-600/20 border border-purple-500/20 backdrop-blur-md shadow-md">
+                  <div className="flex items-center space-x-3">
+                    <span className="material-symbols-outlined text-purple-300 text-2xl">
+                      visibility
+                    </span>
+                    <div>
+                      <div className="text-xl font-semibold text-white">
+                        {Object.values(onlineUsers).reduce(
+                          (s, u) => s + u.size,
+                          0,
+                        )}
+                      </div>
+                      <div className="text-sm text-purple-200">
+                        Active Users
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
+              {/* Logout */}
               <button
                 onClick={async () => {
                   await supabase.auth.signOut();
                   router.replace("/");
                 }}
-                className="w-full px-4 py-3 bg-red-600 hover:bg-red-700 rounded-lg text-white font-medium transition-colors flex items-center justify-center space-x-2"
+                className="w-full max-w-4xl mx-auto px-4 py-2 mt-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-200 hover:text-white text-sm font-medium transition-colors flex items-center justify-center space-x-2"
               >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                  />
-                </svg>
+                <span className="material-symbols-outlined text-[20px]">
+                  logout
+                </span>
                 <span>Logout</span>
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Footer.tsx */}
+      <footer className="fixed bottom-0 inset-x-0 bg-gray-900/90 border-t border-gray-300/20 backdrop-blur-lg z-0">
+        <div className="max-w-lg mx-auto flex justify-between items-center py-2 px-6 text-white relative">
+          {/* Active Users */}
+          <div className="flex items-center space-x-1 text-green-400 text-xs bg-gray-700/30 px-2 py-1 rounded-full backdrop-blur-sm">
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+            <span>
+              {Object.values(onlineUsers).reduce(
+                (sum, users) => sum + users.size,
+                0,
+              )}
+            </span>
+          </div>
+
+          {/* Center Floating + Button */}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            title="Create Room"
+            className={`
+    absolute -top-6 left-1/2 transform -translate-x-1/2
+    w-14 h-14 rounded-full
+    ${styles.createButtonBackground}
+    border border-white/20
+    backdrop-blur-md shadow-[0_8px_24px_rgba(0,0,0,0.25)]
+    text-white transition-all duration-300
+    flex items-center justify-center
+  `}
+          >
+            <span className="material-symbols-outlined text-[28px]">add</span>
+          </button>
+          {/* Profile Button - ガラス感 + カラフル */}
+          <button
+            onClick={() => setShowProfileModal(true)}
+            title="Profile"
+            className="
+    px-2.5 py-1.5 rounded-lg
+    bg-white/5 hover:bg-white/10
+    border border-white/10
+    backdrop-blur
+    text-white text-sm
+    flex items-center gap-1
+    transition duration-200
+  "
+          >
+            <span className="material-symbols-outlined text-[18px]">
+              person
+            </span>
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
