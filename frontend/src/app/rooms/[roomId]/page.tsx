@@ -2,10 +2,11 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import * as api from "@/lib/api";
+import { usePresence } from "@/context/PresenceContext";
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -16,7 +17,6 @@ export default function RoomPage() {
   const [pointHistory, setPointHistory] = useState<any[]>([]);
   const [settleHistory, setSettleHistory] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
-  const wsRef = useRef<WebSocket | null>(null);
 
   // ポイントラウンド用 state
   const [isRoundActive, setIsRoundActive] = useState(false);
@@ -28,50 +28,65 @@ export default function RoomPage() {
   );
   const [approvedBy, setApprovedBy] = useState<Set<string>>(new Set());
 
-  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
-  // 精算用 input
   const [settleInput, setSettleInput] = useState({ to_uid: "", amount: 0 });
+  // presence は context で管理
+  const {
+    wsReady,
+    enterRoom,
+    leaveRoom,
+    subscribePresence,
+    unsubscribePresence,
+    onlineUsers: ctxOnlineUsers,
+    onEvent,
+  } = usePresence();
 
   // 1. トークン＆ユーザー取得
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      const t = data.session?.access_token ?? null;
-      setToken(t);
+      setToken(data.session?.access_token ?? null);
     });
   }, []);
+
   useEffect(() => {
     if (!token) return;
     api
       .getMe(token)
       .then(setMe)
       .catch(() => router.replace("/"));
-  }, [token]);
-
-  // 2. ルーム＆履歴取得
-  const fetchAll = () => {
-    if (!token || !roomId) return;
-    api.getRoom(token, roomId).then(setRoom);
-    api.getPointHistory(token, roomId).then(setPointHistory);
-    api.getSettlementHistory(token, roomId).then(setSettleHistory);
-    api.getPresence(token, roomId).then((list: string[]) => {
-      setOnlineUsers(new Set(list));
-    });
-  };
-  useEffect(fetchAll, [token, roomId, msg]);
-
-  // 3. WS でイベント受信
+  }, [token, router]);
+  // 3. roomData と history の初期取得だけ
   useEffect(() => {
     if (!token || !roomId) return;
-    if (wsRef.current) wsRef.current.close();
-    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws"}?token=${token}`;
-    const ws = new WebSocket(wsUrl);
+    (async () => {
+      try {
+        const [roomData, ph, sh] = await Promise.all([
+          api.getRoom(token, roomId),
+          api.getPointHistory(token, roomId),
+          api.getSettlementHistory(token, roomId),
+        ]);
+        setRoom(roomData);
+        setPointHistory(ph);
+        setSettleHistory(sh);
+      } catch (err: any) {
+        console.error("fetchAll error:", err);
+        alert("データの取得に失敗しました。");
+      }
+    })();
+  }, [token, roomId, msg]);
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "enter_room", room_id: roomId }));
+  // 3. PresenceContext を使って入退室管理
+  useEffect(() => {
+    if (!wsReady || !roomId) return;
+    enterRoom(roomId);
+    return () => {
+      leaveRoom(roomId);
     };
+  }, [wsReady, roomId, enterRoom, leaveRoom]);
 
-    ws.onmessage = (e) => {
-      const ev = JSON.parse(e.data);
+  // 4. ポイント・精算イベントのみ拾う
+  useEffect(() => {
+    if (!roomId) return;
+    const off = onEvent((ev) => {
       if (ev.room_id !== roomId) return;
       switch (ev.type) {
         case "point_round_started":
@@ -98,37 +113,21 @@ export default function RoomPage() {
           setIsRoundActive(false);
           setSubmissions({});
           setSubmittedBy(new Set());
-        case "user_entered":
-          setOnlineUsers((prev) => {
-            const next = new Set(prev);
-            next.add(ev.uid);
-            return next;
-          });
-          break;
-        case "user_left":
-          setOnlineUsers((prev) => {
-            const next = new Set(prev);
-            next.delete(ev.uid);
-            return next;
-          });
           break;
         default:
-          // join events / settle approvals も trigger fetchAll
+          // join_request, join_approved, settle_approved などは再フェッチ
           setMsg((m) => m + "x");
       }
-    };
-    wsRef.current = ws;
-    return () => {
-      // 退室通知
-      ws.send(JSON.stringify({ type: "leave_room", room_id: roomId }));
-      ws.close();
-    };
-  }, [token, roomId]);
+    });
+    return off;
+  }, [onEvent, roomId]);
 
-  if (!token || !me)
+  if (!token || !me) {
     return <p className="text-center mt-20 text-gray-400">Loading…</p>;
-  if (!room)
+  }
+  if (!room) {
     return <p className="text-center mt-20 text-red-400">Room not found.</p>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
@@ -149,15 +148,16 @@ export default function RoomPage() {
           <h2 className="font-semibold mb-2">メンバー</h2>
           <div className="flex flex-wrap gap-2">
             {room.members.map((m: any) => {
-              const isOnline = onlineUsers.has(m.uid);
+              // PresenceContext 側の onlineUsers で判定
+              const isOnline = ctxOnlineUsers[roomId]?.has(m.uid) ?? false;
               return (
                 <span
                   key={m.uid}
                   className={`
-            px-3 py-1 rounded-full flex items-center gap-1
-            ${m.uid === me.uid ? "bg-blue-600" : "bg-gray-700"}
-            ${isOnline ? "ring-2 ring-green-400" : "opacity-60"}
-          `}
+                    px-3 py-1 rounded-full flex items-center gap-1
+                    ${m.uid === me.uid ? "bg-blue-600" : "bg-gray-700"}
+                    ${isOnline ? "ring-2 ring-green-400" : "opacity-60"}
+                  `}
                 >
                   {m.uid}
                   {isOnline && (
@@ -216,20 +216,14 @@ export default function RoomPage() {
         {/* ポイントラウンド */}
         <section className="bg-gray-800 p-4 rounded">
           <h2 className="font-semibold mb-3">ポイントラウンド</h2>
-
-          {/* ラウンド開始ボタン：誰でもOK */}
           {!isRoundActive && !finalTable && (
             <button
-              onClick={async () => {
-                await api.startPointRound(token!, roomId!);
-              }}
+              onClick={() => api.startPointRound(token, roomId)}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
             >
               ラウンド開始
             </button>
           )}
-
-          {/* 参加者提出状況 */}
           {isRoundActive && (
             <div className="space-y-2">
               <p>提出状況:</p>
@@ -241,18 +235,16 @@ export default function RoomPage() {
                   ) : m.uid === me.uid ? (
                     <button
                       onClick={async () => {
-                        // promptでキャンセルしたら中止API呼び出し
                         const v = prompt("スコアを入力してください", "0");
                         if (v === null) {
-                          // キャンセル扱い
-                          await api.cancelPointRound(token!, roomId!, {
+                          await api.cancelPointRound(token, roomId, {
                             reason: "ユーザーキャンセル",
                           });
                           return;
                         }
                         const num = Number(v);
                         if (!isNaN(num)) {
-                          await api.submitPoint(token!, roomId!, me.uid, num);
+                          await api.submitPoint(token, roomId, me.uid, num);
                         }
                       }}
                       className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded"
@@ -264,11 +256,9 @@ export default function RoomPage() {
                   )}
                 </div>
               ))}
-
-              {/* 集計 */}
               {submittedBy.size === room.members.length && (
                 <button
-                  onClick={() => api.finalizePointRound(token!, roomId!)}
+                  onClick={() => api.finalizePointRound(token, roomId)}
                   className="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded"
                 >
                   集計する
@@ -276,8 +266,6 @@ export default function RoomPage() {
               )}
             </div>
           )}
-
-          {/* 最終テーブル & 承認 */}
           {finalTable && (
             <div className="mt-4">
               <h3 className="font-medium mb-2">最終スコア表</h3>
@@ -297,7 +285,7 @@ export default function RoomPage() {
                     {approvedBy.has(m.uid) ? (
                       <span className="text-green-400">承認済</span>
                     ) : (
-                      me.uid === m.uid && (
+                      m.uid === me.uid && (
                         <button
                           onClick={() =>
                             api.approvePoint(token, roomId, currentRoundId!)

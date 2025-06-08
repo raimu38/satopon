@@ -3,9 +3,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import * as api from "@/lib/api";
+import { usePresence } from "@/context/PresenceContext";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -15,7 +16,14 @@ export default function DashboardPage() {
   const [allRooms, setAllRooms] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
   const [newRoom, setNewRoom] = useState({ name: "", color_id: 1 });
-  const wsRef = useRef<WebSocket | null>(null);
+
+  const {
+    wsReady,
+    subscribePresence,
+    unsubscribePresence,
+    onlineUsers,
+    onEvent,
+  } = usePresence();
 
   // 1. 認証トークン取得
   useEffect(() => {
@@ -47,29 +55,45 @@ export default function DashboardPage() {
     })();
   }, [token]);
 
-  // 3. 自分の参加ルーム一覧
+  // app/c402/page.tsx
+  useEffect(() => {
+    const off = onEvent((ev) => {
+      switch (ev.type) {
+        // ダッシュボードでリアルタイムに反映したいイベント一覧
+        case "user_entered":
+        case "user_left":
+        case "join_request":
+        case "join_request_cancelled":
+        case "join_approved":
+          // msg 更新で useEffect([msg]) をトリガー
+          setMsg((m) => m + "x");
+          break;
+        // もし他の通知も拾いたいならここに追加
+        default:
+          break;
+      }
+    });
+    return off;
+  }, [onEvent]);
+  // 3. 自分の参加ルーム一覧取得
   useEffect(() => {
     if (!token) return;
     api.listRooms(token).then(setRooms);
   }, [token, msg]);
 
-  // 4. 全ルーム一覧（参加申請用）
+  // 4. 全ルーム一覧取得（参加申請用）
   useEffect(() => {
     if (!token) return;
     api.getAllRooms(token).then(setAllRooms);
   }, [token, msg]);
 
-  // 5. WebSocket でサーバからの通知をキャッチ → msg トリガーで再レンダー
+  // 5. rooms の変化に合わせて presence を subscribe/unsubscribe
   useEffect(() => {
-    if (!token) return;
-    if (wsRef.current) wsRef.current.close();
-    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws"}?token=${token}`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onmessage = () => setMsg((m) => m + "x");
-    wsRef.current = ws;
-    return () => ws.close();
-  }, [token]);
+    rooms.forEach((r) => subscribePresence(r.room_id));
+    return () => {
+      rooms.forEach((r) => unsubscribePresence(r.room_id));
+    };
+  }, [rooms, subscribePresence, unsubscribePresence]);
 
   if (!token || !me)
     return <p className="text-center mt-20 text-gray-400">Loading…</p>;
@@ -77,7 +101,14 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
       <header className="flex justify-between items-center p-6 border-b border-gray-700">
-        <h1 className="text-2xl font-bold">Welcome, {me.display_name}</h1>
+        <h1 className="text-2xl font-bold">
+          Welcome, {me.display_name}
+          {!wsReady && (
+            <span className="ml-2 text-sm text-yellow-400 animate-pulse">
+              Connecting…
+            </span>
+          )}
+        </h1>
         <button
           onClick={async () => {
             await supabase.auth.signOut();
@@ -112,7 +143,10 @@ export default function DashboardPage() {
             />
             <button
               onClick={async () => {
-                if (!newRoom.name) return alert("ルーム名を入力してください");
+                if (!newRoom.name) {
+                  alert("ルーム名を入力してください");
+                  return;
+                }
                 await api.createRoom(token, newRoom);
                 setNewRoom({ name: "", color_id: 1 });
                 setMsg("new-room");
@@ -174,26 +208,38 @@ export default function DashboardPage() {
         <section>
           <h2 className="text-xl font-semibold mb-3">あなたのルーム</h2>
           <div className="space-y-2">
-            {rooms.map((r) => (
-              <Link
-                key={r.room_id}
-                href={`/rooms/${r.room_id}`}
-                className="flex justify-between items-center p-3 bg-gray-800 rounded hover:bg-gray-700 transition"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-white">
-                    {r.name}{" "}
-                    <span className="text-gray-400">({r.room_id})</span>
-                  </span>
-                  {r.pending_members?.length > 0 && (
-                    <span
-                      title="参加申請があります"
-                      className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"
-                    />
-                  )}
-                </div>
-              </Link>
-            ))}
+            {rooms.map((r) => {
+              const count = onlineUsers[r.room_id]?.size ?? 0;
+              return (
+                <Link
+                  key={r.room_id}
+                  href={`/rooms/${r.room_id}`}
+                  className="flex justify-between items-center p-3 bg-gray-800 rounded hover:bg-gray-700 transition"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-white">
+                      {r.name}{" "}
+                      <span className="text-gray-400">({r.room_id})</span>
+                    </span>
+                    {r.pending_members?.length > 0 && (
+                      <span
+                        title="参加申請があります"
+                        className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {count > 0 && (
+                      <span
+                        className="w-3 h-3 bg-blue-400 rounded-full animate-pulse"
+                        title={`${count} online`}
+                      />
+                    )}
+                    <span className="text-gray-400 text-sm">{count}</span>
+                  </div>
+                </Link>
+              );
+            })}
             {rooms.length === 0 && (
               <p className="text-gray-500">まだ参加中のルームはありません。</p>
             )}

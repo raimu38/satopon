@@ -136,14 +136,6 @@ class RoomService:
         await send_event(applicant_uid, {"type": "join_approved", "room_id": room_id})
         self._cancel_pending_timer(room_id, applicant_uid)
 
-    async def reject_member(self, room_id: str, applicant_uid: str, approver_uid: str):
-        room = await self.room_repo.get_by_id(room_id)
-        if not any(m["uid"] == approver_uid for m in room["members"]):
-            raise HTTPException(status_code=403, detail="No permission")
-        if not any(m["uid"] == applicant_uid for m in room.get("pending_members", [])):
-            raise HTTPException(status_code=400, detail="Not in pending list")
-        await self.room_repo.remove_pending_member(room_id, applicant_uid)
-        self._cancel_pending_timer(room_id, applicant_uid)
 
     async def cancel_join_request(self, room_id: str, user_id: str):
         room = await self.room_repo.get_by_id(room_id)
@@ -167,9 +159,15 @@ class RoomService:
         if not any(m["uid"] == applicant_uid for m in room.get("pending_members", [])):
             raise HTTPException(status_code=400, detail="Not in pending list")
         # pending_membersから削除のみ
+        # pending_members から削除
         await self.room_repo.remove_pending_member(room_id, applicant_uid)
-        # 申請者に通知したければここでWS呼ぶ
-        # await send_event(applicant_uid, {"type": "join_rejected", "room_id": room_id})
+        # 拒否されたことを申請者に通知 → クライアント側で pending_members リストから消える
+        from src.ws import send_event
+        await send_event(applicant_uid, {
+            "type": "join_request_cancelled",
+            "room_id": room_id,
+            "user_id": applicant_uid
+        })
 
     async def leave_room(self, room_id: str, uid: str):
         room = await self.room_repo.get_by_id(room_id)

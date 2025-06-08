@@ -5,9 +5,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import * as api from "@/lib/api";
+import { usePresence } from "@/context/PresenceContext";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -17,7 +18,9 @@ export default function DashboardPage() {
   const [allRooms, setAllRooms] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
   const [newRoom, setNewRoom] = useState({ name: "", color_id: 1 });
-  const wsRef = useRef<WebSocket | null>(null);
+
+  const { wsReady, subscribePresence, unsubscribePresence, onlineUsers } =
+    usePresence();
 
   // 1. 認証トークン取得
   useEffect(() => {
@@ -49,29 +52,44 @@ export default function DashboardPage() {
     })();
   }, [token]);
 
-  // 3. 自分の参加ルーム一覧
+  // app/c402/page.tsx
+  useEffect(() => {
+    if (!token) return;
+
+    const ws = new WebSocket(
+      `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws"}?token=${token}`,
+    );
+    ws.onmessage = (e) => {
+      const ev = JSON.parse(e.data);
+      if (
+        ev.type === "join_request" ||
+        ev.type === "join_request_cancelled" ||
+        ev.type === "join_approved"
+      ) {
+        setMsg((m) => m + "x");
+      }
+    };
+    return () => ws.close();
+  }, [token]);
+  // 3. 自分の参加ルーム一覧取得
   useEffect(() => {
     if (!token) return;
     api.listRooms(token).then(setRooms);
   }, [token, msg]);
 
-  // 4. 全ルーム一覧（参加申請用）
+  // 4. 全ルーム一覧取得（参加申請用）
   useEffect(() => {
     if (!token) return;
     api.getAllRooms(token).then(setAllRooms);
   }, [token, msg]);
 
-  // 5. WebSocket でサーバからの通知をキャッチ → msg トリガーで再レンダー
+  // 5. rooms の変化に合わせて presence を subscribe/unsubscribe
   useEffect(() => {
-    if (!token) return;
-    if (wsRef.current) wsRef.current.close();
-    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws"}?token=${token}`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onmessage = () => setMsg((m) => m + "x");
-    wsRef.current = ws;
-    return () => ws.close();
-  }, [token]);
+    rooms.forEach((r) => subscribePresence(r.room_id));
+    return () => {
+      rooms.forEach((r) => unsubscribePresence(r.room_id));
+    };
+  }, [rooms, subscribePresence, unsubscribePresence]);
 
   if (!token || !me)
     return <p className="text-center mt-20 text-gray-400">Loading…</p>;
@@ -79,7 +97,14 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
       <header className="flex justify-between items-center p-6 border-b border-gray-700">
-        <h1 className="text-2xl font-bold">Welcome, {me.display_name}</h1>
+        <h1 className="text-2xl font-bold">
+          Welcome, {me.display_name}
+          {!wsReady && (
+            <span className="ml-2 text-sm text-yellow-400 animate-pulse">
+              Connecting…
+            </span>
+          )}
+        </h1>
         <button
           onClick={async () => {
             await supabase.auth.signOut();
@@ -114,7 +139,10 @@ export default function DashboardPage() {
             />
             <button
               onClick={async () => {
-                if (!newRoom.name) return alert("ルーム名を入力してください");
+                if (!newRoom.name) {
+                  alert("ルーム名を入力してください");
+                  return;
+                }
                 await api.createRoom(token, newRoom);
                 setNewRoom({ name: "", color_id: 1 });
                 setMsg("new-room");
@@ -176,26 +204,38 @@ export default function DashboardPage() {
         <section>
           <h2 className="text-xl font-semibold mb-3">あなたのルーム</h2>
           <div className="space-y-2">
-            {rooms.map((r) => (
-              <Link
-                key={r.room_id}
-                href={`/rooms/${r.room_id}`}
-                className="flex justify-between items-center p-3 bg-gray-800 rounded hover:bg-gray-700 transition"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-white">
-                    {r.name}{" "}
-                    <span className="text-gray-400">({r.room_id})</span>
-                  </span>
-                  {r.pending_members?.length > 0 && (
-                    <span
-                      title="参加申請があります"
-                      className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"
-                    />
-                  )}
-                </div>
-              </Link>
-            ))}
+            {rooms.map((r) => {
+              const count = onlineUsers[r.room_id]?.size ?? 0;
+              return (
+                <Link
+                  key={r.room_id}
+                  href={`/rooms/${r.room_id}`}
+                  className="flex justify-between items-center p-3 bg-gray-800 rounded hover:bg-gray-700 transition"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-white">
+                      {r.name}{" "}
+                      <span className="text-gray-400">({r.room_id})</span>
+                    </span>
+                    {r.pending_members?.length > 0 && (
+                      <span
+                        title="参加申請があります"
+                        className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {count > 0 && (
+                      <span
+                        className="w-3 h-3 bg-blue-400 rounded-full animate-pulse"
+                        title={`${count} online`}
+                      />
+                    )}
+                    <span className="text-gray-400 text-sm">{count}</span>
+                  </div>
+                </Link>
+              );
+            })}
             {rooms.length === 0 && (
               <p className="text-gray-500">まだ参加中のルームはありません。</p>
             )}
@@ -361,20 +401,25 @@ hr { margin: 2rem 0; }
 
 import "./globals.css";
 export const metadata = {
-  title: 'Next.js',
-  description: 'Generated by Next.js',
-}
+  title: "Next.js",
+  description: "Generated by Next.js",
+};
+
+// app/layout.tsx (または pages/_app.tsx)
+import { PresenceProvider } from "@/context/PresenceContext";
 
 export default function RootLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="ja">
+      <body>
+        <PresenceProvider>{children}</PresenceProvider>
+      </body>
     </html>
-  )
+  );
 }
 
 
@@ -461,10 +506,11 @@ export default function AuthPage() {
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import * as api from "@/lib/api";
+import { usePresence } from "@/context/PresenceContext";
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -475,7 +521,6 @@ export default function RoomPage() {
   const [pointHistory, setPointHistory] = useState<any[]>([]);
   const [settleHistory, setSettleHistory] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
-  const wsRef = useRef<WebSocket | null>(null);
 
   // ポイントラウンド用 state
   const [isRoundActive, setIsRoundActive] = useState(false);
@@ -487,50 +532,65 @@ export default function RoomPage() {
   );
   const [approvedBy, setApprovedBy] = useState<Set<string>>(new Set());
 
-  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
-  // 精算用 input
   const [settleInput, setSettleInput] = useState({ to_uid: "", amount: 0 });
+  // presence は context で管理
+  const {
+    wsReady,
+    enterRoom,
+    leaveRoom,
+    subscribePresence,
+    unsubscribePresence,
+    onlineUsers: ctxOnlineUsers,
+    onEvent,
+  } = usePresence();
 
   // 1. トークン＆ユーザー取得
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      const t = data.session?.access_token ?? null;
-      setToken(t);
+      setToken(data.session?.access_token ?? null);
     });
   }, []);
+
   useEffect(() => {
     if (!token) return;
     api
       .getMe(token)
       .then(setMe)
       .catch(() => router.replace("/"));
-  }, [token]);
-
-  // 2. ルーム＆履歴取得
-  const fetchAll = () => {
-    if (!token || !roomId) return;
-    api.getRoom(token, roomId).then(setRoom);
-    api.getPointHistory(token, roomId).then(setPointHistory);
-    api.getSettlementHistory(token, roomId).then(setSettleHistory);
-    api.getPresence(token, roomId).then((list: string[]) => {
-      setOnlineUsers(new Set(list));
-    });
-  };
-  useEffect(fetchAll, [token, roomId, msg]);
-
-  // 3. WS でイベント受信
+  }, [token, router]);
+  // 3. roomData と history の初期取得だけ
   useEffect(() => {
     if (!token || !roomId) return;
-    if (wsRef.current) wsRef.current.close();
-    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws"}?token=${token}`;
-    const ws = new WebSocket(wsUrl);
+    (async () => {
+      try {
+        const [roomData, ph, sh] = await Promise.all([
+          api.getRoom(token, roomId),
+          api.getPointHistory(token, roomId),
+          api.getSettlementHistory(token, roomId),
+        ]);
+        setRoom(roomData);
+        setPointHistory(ph);
+        setSettleHistory(sh);
+      } catch (err: any) {
+        console.error("fetchAll error:", err);
+        alert("データの取得に失敗しました。");
+      }
+    })();
+  }, [token, roomId, msg]);
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "enter_room", room_id: roomId }));
+  // 3. PresenceContext を使って入退室管理
+  useEffect(() => {
+    if (!wsReady || !roomId) return;
+    enterRoom(roomId);
+    return () => {
+      leaveRoom(roomId);
     };
+  }, [wsReady, roomId, enterRoom, leaveRoom]);
 
-    ws.onmessage = (e) => {
-      const ev = JSON.parse(e.data);
+  // 4. ポイント・精算イベントのみ拾う
+  useEffect(() => {
+    if (!roomId) return;
+    const off = onEvent((ev) => {
       if (ev.room_id !== roomId) return;
       switch (ev.type) {
         case "point_round_started":
@@ -557,37 +617,21 @@ export default function RoomPage() {
           setIsRoundActive(false);
           setSubmissions({});
           setSubmittedBy(new Set());
-        case "user_entered":
-          setOnlineUsers((prev) => {
-            const next = new Set(prev);
-            next.add(ev.uid);
-            return next;
-          });
-          break;
-        case "user_left":
-          setOnlineUsers((prev) => {
-            const next = new Set(prev);
-            next.delete(ev.uid);
-            return next;
-          });
           break;
         default:
-          // join events / settle approvals も trigger fetchAll
+          // join_request, join_approved, settle_approved などは再フェッチ
           setMsg((m) => m + "x");
       }
-    };
-    wsRef.current = ws;
-    return () => {
-      // 退室通知
-      ws.send(JSON.stringify({ type: "leave_room", room_id: roomId }));
-      ws.close();
-    };
-  }, [token, roomId]);
+    });
+    return off;
+  }, [onEvent, roomId]);
 
-  if (!token || !me)
+  if (!token || !me) {
     return <p className="text-center mt-20 text-gray-400">Loading…</p>;
-  if (!room)
+  }
+  if (!room) {
     return <p className="text-center mt-20 text-red-400">Room not found.</p>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
@@ -608,15 +652,16 @@ export default function RoomPage() {
           <h2 className="font-semibold mb-2">メンバー</h2>
           <div className="flex flex-wrap gap-2">
             {room.members.map((m: any) => {
-              const isOnline = onlineUsers.has(m.uid);
+              // PresenceContext 側の onlineUsers で判定
+              const isOnline = ctxOnlineUsers[roomId]?.has(m.uid) ?? false;
               return (
                 <span
                   key={m.uid}
                   className={`
-            px-3 py-1 rounded-full flex items-center gap-1
-            ${m.uid === me.uid ? "bg-blue-600" : "bg-gray-700"}
-            ${isOnline ? "ring-2 ring-green-400" : "opacity-60"}
-          `}
+                    px-3 py-1 rounded-full flex items-center gap-1
+                    ${m.uid === me.uid ? "bg-blue-600" : "bg-gray-700"}
+                    ${isOnline ? "ring-2 ring-green-400" : "opacity-60"}
+                  `}
                 >
                   {m.uid}
                   {isOnline && (
@@ -675,20 +720,14 @@ export default function RoomPage() {
         {/* ポイントラウンド */}
         <section className="bg-gray-800 p-4 rounded">
           <h2 className="font-semibold mb-3">ポイントラウンド</h2>
-
-          {/* ラウンド開始ボタン：誰でもOK */}
           {!isRoundActive && !finalTable && (
             <button
-              onClick={async () => {
-                await api.startPointRound(token!, roomId!);
-              }}
+              onClick={() => api.startPointRound(token, roomId)}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
             >
               ラウンド開始
             </button>
           )}
-
-          {/* 参加者提出状況 */}
           {isRoundActive && (
             <div className="space-y-2">
               <p>提出状況:</p>
@@ -700,18 +739,16 @@ export default function RoomPage() {
                   ) : m.uid === me.uid ? (
                     <button
                       onClick={async () => {
-                        // promptでキャンセルしたら中止API呼び出し
                         const v = prompt("スコアを入力してください", "0");
                         if (v === null) {
-                          // キャンセル扱い
-                          await api.cancelPointRound(token!, roomId!, {
+                          await api.cancelPointRound(token, roomId, {
                             reason: "ユーザーキャンセル",
                           });
                           return;
                         }
                         const num = Number(v);
                         if (!isNaN(num)) {
-                          await api.submitPoint(token!, roomId!, me.uid, num);
+                          await api.submitPoint(token, roomId, me.uid, num);
                         }
                       }}
                       className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded"
@@ -723,11 +760,9 @@ export default function RoomPage() {
                   )}
                 </div>
               ))}
-
-              {/* 集計 */}
               {submittedBy.size === room.members.length && (
                 <button
-                  onClick={() => api.finalizePointRound(token!, roomId!)}
+                  onClick={() => api.finalizePointRound(token, roomId)}
                   className="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded"
                 >
                   集計する
@@ -735,8 +770,6 @@ export default function RoomPage() {
               )}
             </div>
           )}
-
-          {/* 最終テーブル & 承認 */}
           {finalTable && (
             <div className="mt-4">
               <h3 className="font-medium mb-2">最終スコア表</h3>
@@ -756,7 +789,7 @@ export default function RoomPage() {
                     {approvedBy.has(m.uid) ? (
                       <span className="text-green-400">承認済</span>
                     ) : (
-                      me.uid === m.uid && (
+                      m.uid === me.uid && (
                         <button
                           onClick={() =>
                             api.approvePoint(token, roomId, currentRoundId!)
@@ -1061,6 +1094,193 @@ export default function AnimationSplash({ show = true }: { show?: boolean }) {
     </div>
   );
 }
+
+
+--- FILE: ./context/PresenceContext.tsx ---
+
+// src/context/PresenceContext.tsx
+"use client";
+
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  PropsWithChildren,
+} from "react";
+import * as api from "@/lib/api";
+import { supabase } from "@/lib/supabaseClient";
+
+type Event =
+  | { type: "user_entered"; room_id: string; uid: string }
+  | { type: "user_left"; room_id: string; uid: string }
+  | { type: string; [key: string]: any };
+
+interface PresenceContextValue {
+  wsReady: boolean;
+  onlineUsers: Record<string, Set<string>>;
+  subscribePresence: (room_id: string) => void; // ダッシュボード用
+  unsubscribePresence: (room_id: string) => void;
+  enterRoom: (room_id: string) => void; // ルーム画面用
+  leaveRoom: (room_id: string) => void;
+  onEvent: (listener: (ev: Event) => void) => () => void;
+}
+
+const PresenceContext = createContext<PresenceContextValue | null>(null);
+
+export const PresenceProvider = ({ children }: PropsWithChildren) => {
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const [token, setToken] = useState<string | null>(null);
+  const [wsReady, setWsReady] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState<Record<string, Set<string>>>(
+    {},
+  );
+
+  const subscribedRooms = useRef<Set<string>>(new Set()); // 「見るだけ」
+  const enteredRooms = useRef<Set<string>>(new Set()); // 「実際に入室中」 ★追加
+
+  const listeners = useRef<Set<(ev: Event) => void>>(new Set());
+
+  /* ----------------------------- auth token ----------------------------- */
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setToken(data.session?.access_token ?? null);
+    });
+  }, []);
+
+  /* ----------------------------- WebSocket ------------------------------ */
+  useEffect(() => {
+    if (!token) return;
+    const ws = new WebSocket(
+      `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws"}?token=${token}`,
+    );
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setWsReady(true);
+      // 再接続時は「本当に入室している部屋」だけを再送信 ★修正
+      enteredRooms.current.forEach((room_id) =>
+        ws.send(JSON.stringify({ type: "enter_room", room_id })),
+      );
+    };
+
+    ws.onmessage = (e) => {
+      let ev: Event;
+      try {
+        ev = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+
+      /* -------- presence セットの更新 -------- */
+      if (ev.type === "user_entered") {
+        setOnlineUsers((prev) => {
+          const next = { ...prev };
+          (next[ev.room_id] ??= new Set()).add(ev.uid);
+          return next;
+        });
+      } else if (ev.type === "user_left") {
+        setOnlineUsers((prev) => {
+          const next = { ...prev };
+          next[ev.room_id]?.delete(ev.uid);
+          return next;
+        });
+      }
+
+      /* -------- 登録済みリスナーへ配信 -------- */
+      listeners.current.forEach((fn) => fn(ev));
+    };
+
+    ws.onclose = () => {
+      setWsReady(false);
+      setTimeout(() => setToken(token), 3000); // 3秒後に再接続
+    };
+
+    return () => ws.close();
+  }, [token]);
+
+  /* --------------------------- ダッシュボード --------------------------- */
+  const subscribePresence = useCallback(
+    (room_id: string) => {
+      if (subscribedRooms.current.has(room_id)) return;
+      subscribedRooms.current.add(room_id); // ★追加
+      api.getPresence(token!, room_id).then((list) => {
+        setOnlineUsers((prev) => ({ ...prev, [room_id]: new Set(list) }));
+      });
+    },
+    [token],
+  );
+
+  const unsubscribePresence = useCallback((room_id: string) => {
+    subscribedRooms.current.delete(room_id);
+    setOnlineUsers((prev) => {
+      const next = { ...prev };
+      delete next[room_id];
+      return next;
+    });
+  }, []);
+
+  /* ---------------------------- ルーム画面 ----------------------------- */
+  const enterRoom = useCallback(
+    (room_id: string) => {
+      if (enteredRooms.current.has(room_id)) return; // 2重送信防止 ★追加
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "enter_room", room_id }));
+      }
+      enteredRooms.current.add(room_id); // ★追加
+      // 最新 presence 取得
+      api.getPresence(token!, room_id).then((list) => {
+        setOnlineUsers((prev) => ({ ...prev, [room_id]: new Set(list) }));
+      });
+    },
+    [token],
+  );
+
+  const leaveRoom = useCallback((room_id: string) => {
+    if (enteredRooms.current.has(room_id)) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "leave_room", room_id }));
+      }
+      enteredRooms.current.delete(room_id); // ★追加
+    }
+    setOnlineUsers((prev) => {
+      const next = { ...prev };
+      delete next[room_id];
+      return next;
+    });
+  }, []);
+
+  /* ------------------------------ API ------------------------------- */
+  const onEvent = useCallback((listener: (ev: Event) => void) => {
+    listeners.current.add(listener);
+    return () => listeners.current.delete(listener);
+  }, []);
+
+  return (
+    <PresenceContext.Provider
+      value={{
+        wsReady,
+        onlineUsers,
+        subscribePresence,
+        unsubscribePresence,
+        enterRoom,
+        leaveRoom,
+        onEvent,
+      }}
+    >
+      {children}
+    </PresenceContext.Provider>
+  );
+};
+
+export const usePresence = (): PresenceContextValue => {
+  const ctx = useContext(PresenceContext);
+  if (!ctx) throw new Error("usePresence must be used within PresenceProvider");
+  return ctx;
+};
 
 
 --- FILE: ./lib/api.ts ---

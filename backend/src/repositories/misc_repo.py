@@ -14,14 +14,20 @@ class PointRecordRepository:
 
 # repositories/misc_repo.py
 
+# src/repositories/misc_repo.py か settlement_repo.py あたり
+
+# src/repositories/misc_repo.py か settlement_repo.py 内
+
     async def history(self, room_id: str) -> List[dict]:
         cursor = self.collection.find({"room_id": room_id, "is_deleted": False})
         items = await cursor.to_list(length=100)
         for item in items:
+            # _id を文字列化して settlement_id に乗せ替え
             if "_id" in item:
-                item["_id"] = str(item["_id"])
+                item["settlement_id"] = str(item["_id"])
+                del item["_id"]
         return items
-
+    
     async def logical_delete(self, room_id: str, round_id: str) -> bool:
         result = await self.collection.update_one(
             {"room_id": room_id, "round_id": round_id}, {"$set": {"is_deleted": True}}
@@ -67,7 +73,11 @@ class SettlementRepository:
 
     async def history(self, room_id: str) -> List[dict]:
         cursor = self.collection.find({"room_id": room_id, "is_deleted": False})
-        return await cursor.to_list(length=100)
+        items = await cursor.to_list(length=100)
+        for item in items:
+            item["settlement_id"] = str(item["_id"])
+            del item["_id"]
+        return items
 
     async def history_by_uid(self, uid: str) -> List[dict]:
         cursor = self.collection.find(

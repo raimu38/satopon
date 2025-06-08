@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from src.services.room_service import RoomService
 from src.repositories.room_repo import RoomRepository
 from src.repositories.misc_repo import PointRecordRepository
-from src.db import get_db
+from src.db import get_db ,get_redis
 from src.schemas import RoomCreate, RoomResponse, RoomUpdate, ApproveRejectBody
 from typing import List
 from src.utils import get_current_uid
@@ -27,6 +27,17 @@ async def list_rooms(
     service: RoomService = Depends(get_room_service),
 ):
     return await service.list_user_rooms(current_uid)
+
+@router.get("/rooms/{room_id}/presence", response_model=List[str])
+async def get_presence(
+    room_id: str,
+    current_uid: str = Depends(get_current_uid),
+    redis=Depends(get_redis),
+):
+    key = f"presence:{room_id}"
+    members = await redis.smembers(key)
+    # 文字列の set を配列にして返却
+    return list(members)
 
 @router.get("/rooms/all", response_model=List[RoomResponse])
 async def list_all_rooms(

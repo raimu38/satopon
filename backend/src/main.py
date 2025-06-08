@@ -13,14 +13,11 @@ app = FastAPI()
 
 # CORS
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost"        # ※必要なら追加
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+      CORSMiddleware,
+      allow_origins=["http://localhost","http://localhost:3000"],
+      allow_credentials=True,
+      allow_methods=["*"],
+      allow_headers=["*"],
 )
 
 app.include_router(user.router, prefix="/api", tags=["user"])

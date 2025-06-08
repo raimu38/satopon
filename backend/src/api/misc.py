@@ -2,14 +2,24 @@ from fastapi import APIRouter, Depends, HTTPException
 from src.services.misc_service import PointService, SettlementService
 from src.repositories.misc_repo import PointRecordRepository, SettlementRepository
 from src.repositories.room_repo import RoomRepository
-from src.db import get_db
+from src.db import get_db, get_redis
 from src.schemas import PointRegisterRequest, SettlementCreate, PointInput
 from src.utils import get_current_uid
+from src.repositories.round_cache_repo import RoundCacheRepository
 
 router = APIRouter()
 
-def get_point_service(db=Depends(get_db)):
-    return PointService(PointRecordRepository(db), RoomRepository(db))
+from functools import lru_cache
+
+@lru_cache()
+def get_point_service():
+    mongo = get_db()
+    cache = get_redis()
+    return PointService(
+        PointRecordRepository(mongo),
+        RoomRepository(mongo),
+        RoundCacheRepository(cache),
+    )
 
 def get_settlement_service(db=Depends(get_db)):
     return SettlementService(SettlementRepository(db))

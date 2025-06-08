@@ -1,7 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status, HTTPException
 from jose import jwt
 from src.config import SUPABASE_JWT_SECRET, AUTH_PROVIDER, FIREBASE_PROJECT_ID
-from src.db import db  # ここで直接 import
+from src.db import db, redis_client
 import asyncio
 
 router = APIRouter()
@@ -46,36 +46,67 @@ async def get_uid_from_token(token: str):
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
-    print(f"[WS] New connection requested. token={token[:16]}...")
+    # 1) 認証
     try:
         uid = await get_uid_from_token(token)
-        print(f"[WS] JWT認証成功 uid={uid}")
-    except Exception as e:
-        print(f"[WS] JWT認証失敗: {e}")
-        await websocket.close()
+    except Exception:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    # 2) 接続承認＆登録
     await websocket.accept()
     active_connections[uid] = websocket
-    print(f"[WS] ACCEPT: WebSocket accepted for uid={uid}. Active connections={list(active_connections.keys())}")
+
     try:
         while True:
             data = await websocket.receive_json()
-            print(f"[WS] Received message from uid={uid}: {data}")
-            if isinstance(data, dict) and data.get("type") == "ping":
+            # 型保証
+            if not isinstance(data, dict) or "type" not in data:
+                continue
+
+            t = data["type"]
+
+            # 3) ping/pong
+            if t == "ping":
                 await websocket.send_json({"type": "pong"})
-                print(f"[WS] Pong sent to uid={uid}")
+                continue
+
+            # 4) 入室通知
+            if t == "enter_room":
+                room_id = data.get("room_id")
+                if room_id:
+                    # Redis のセットに追加
+                    await redis_client.sadd(f"presence:{room_id}", uid)
+                    # ルーム全員に通知
+                    await broadcast_event_to_room(room_id, {
+                        "type": "user_entered",
+                        "room_id": room_id,
+                        "uid": uid,
+                    })
+                continue
+
+            # 5) 退室通知
+            if t == "leave_room":
+                room_id = data.get("room_id")
+                if room_id:
+                    await redis_client.srem(f"presence:{room_id}", uid)
+                    await broadcast_event_to_room(room_id, {
+                        "type": "user_left",
+                        "room_id": room_id,
+                        "uid": uid,
+                    })
+                continue
+
+            # ...（必要に応じて他のメッセージにも対応）...
     except WebSocketDisconnect:
-        print(f"[WS] Disconnect: uid={uid}")
+        # 切断時に全ルームから削除
+        keys = await redis_client.keys("presence:*")
+        for key in keys:
+            await redis_client.srem(key, uid)
+    finally:
+        # 接続リストから除外
         if uid in active_connections and active_connections[uid] is websocket:
             del active_connections[uid]
-        print(f"[WS] Now active connections: {list(active_connections.keys())}")
-    except Exception as e:
-        print(f"[WS] ERROR: {e} (uid={uid})")
-        if uid in active_connections and active_connections[uid] is websocket:
-            del active_connections[uid]
-        await websocket.close()
-        print(f"[WS] Closed connection for uid={uid}")
 
 async def send_event(uid: str, event: dict):
     print(f"[WS] send_event called. uid={uid}, event={event}")

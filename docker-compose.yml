@@ -31,6 +31,16 @@ services:
     volumes:
       - satopon_redis_data:/data
 
+  redis_commander:
+    image: rediscommander/redis-commander:latest
+    container_name: satopon_rediscommander
+    environment:
+      - REDIS_HOSTS=local:satopon_redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - satopon_redis
+
   satopon_frontend:
     build: ./frontend/
     container_name: satopon_frontend
