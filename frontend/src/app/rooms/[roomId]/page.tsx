@@ -8,6 +8,10 @@ import * as api from "@/lib/api";
 import { usePresence } from "@/context/PresenceContext";
 import styles from "./RoomPage.module.css";
 
+type PendingRequest =
+  | { type: "join"; from_uid: string }
+  | { type: "settle"; from_uid: string; amount: number };
+
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const router = useRouter();
@@ -21,9 +25,13 @@ export default function RoomPage() {
   const [msg, setMsg] = useState("");
   const [myBalance, setMyBalance] = useState<number>(0);
 
+  const [showApprovalSuccess, setShowApprovalSuccess] = useState(false);
+  const [historyType, setHistoryType] = useState<"PON" | "SATO">("PON");
   // メンバーのバランス
   const [balances, setBalances] = useState<Record<string, number>>({});
 
+  // 1. state 定義部に joinReq を追加
+  const [joinReq, setJoinReq] = useState<{ from_uid: string } | null>(null);
   // ポイントラウンド用 state
   const [isRoundActive, setIsRoundActive] = useState(false);
   const [currentRoundId, setCurrentRoundId] = useState<string | null>(null);
@@ -33,7 +41,9 @@ export default function RoomPage() {
     null,
   );
   const [approvedBy, setApprovedBy] = useState<Set<string>>(new Set());
-
+  const filteredHistory = pointHistory.filter((rec) =>
+    rec.round_id.startsWith(historyType),
+  );
   // 精算リクエスト用 state
   const [pendingReq, setPendingReq] = useState<{
     from_uid: string;
@@ -113,14 +123,41 @@ export default function RoomPage() {
     if (me) setMyBalance(bal[me.uid] ?? 0);
   }, [pointHistory, room, me]);
 
+  useEffect(() => {
+    if (finalTable && room && approvedBy.size === room.members.length) {
+      setShowApprovalSuccess(true);
+      const timeout = setTimeout(() => {
+        setShowApprovalSuccess(false);
+        setShowPointModal(false);
+      }, 1500); // 1.5秒で閉じる
+
+      return () => clearTimeout(timeout);
+    }
+  }, [approvedBy.size, finalTable, room]);
   // WebSocket イベント: me が取れてから登録
   useEffect(() => {
     if (!me) return;
     const off = onEvent((ev) => {
       if (ev.room_id !== roomId) return;
       switch (ev.type) {
+        // 参加申請
+        case "join_request":
+          console.log("ev:", ev);
+          setJoinReq({ from_uid: ev.applicant_uid });
+          break;
+
+        // 申請が承認・拒否された場合はモーダルを閉じる
+        case "join_approved":
+        case "join_rejected":
+          setJoinReq(null);
+          break;
         // ポイントラウンド
+        // ラウンド開始通知
         case "point_round_started":
+          // 既存の状態セットに加えて、
+          // アラートやトーストでユーザーに「ラウンド開始！」を通知
+          alert("ポイントラウンドが開始されました！");
+          // あとは既存の初期化処理
           setIsRoundActive(true);
           setCurrentRoundId(ev.round_id);
           setSubmittedBy(new Set());
@@ -299,154 +336,295 @@ export default function RoomPage() {
       {/* ポイントラウンドモーダル */}
       {showPointModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
-          <div className="w-full max-w-md bg-gray-800/60 backdrop-blur-xl rounded-2xl p-6">
+          <div className="w-full max-w-md bg-gray-800/60 backdrop-blur-xl rounded-2xl p-6 border border-gray-700 shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-white">Point Round</h2>
+              {/* タイトル＋アイコン */}
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-yellow-400 text-2xl">
+                  stars
+                </span>
+                <h2 className="text-xl font-bold text-white tracking-wide">
+                  PON
+                </h2>
+              </div>
+
+              {/* 閉じるボタン */}
               <button
                 onClick={() => setShowPointModal(false)}
-                className="p-2 hover:bg-gray-700 rounded-full"
+                className="w-8 h-8 flex items-center justify-center hover:bg-gray-700/50 rounded-full transition"
               >
-                <span className="material-symbols-outlined text-white">
+                <span className="material-symbols-outlined text-white text-base">
                   close
                 </span>
               </button>
             </div>
-            {!isRoundActive && !finalTable && (
-              <button
-                onClick={() => api.startPointRound(token!, roomId!)}
-                className="w-full py-2 bg-blue-600 rounded"
-              >
-                Start Round
-              </button>
-            )}
+            {!isRoundActive &&
+              !finalTable &&
+              (room.members.length >= 2 ? (
+                <button
+                  onClick={() => api.startPointRound(token!, roomId!)}
+                  className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition duration-200"
+                >
+                  Start
+                </button>
+              ) : (
+                <button
+                  disabled
+                  className="w-full py-2.5 rounded-lg bg-blue-600/30 text-gray-400 font-semibold shadow-inner cursor-not-allowed"
+                  title="2人以上のメンバーが必要です"
+                >
+                  Start Round
+                </button>
+              ))}
             {isRoundActive && (
-              <div className="space-y-2">
-                <p className="text-gray-300">Submitting…</p>
-                {room.members.map((m: any) => (
-                  <div key={m.uid} className="flex justify-between">
-                    <span className="text-white">{m.uid}</span>
-                    {submittedBy.has(m.uid) ? (
-                      <span className="text-green-400">
-                        Done ({submissions[m.uid]}pt)
-                      </span>
-                    ) : m.uid === me.uid ? (
-                      <button
-                        onClick={async () => {
-                          const v = prompt("Score?", "0");
-                          if (v === null) {
-                            await api.cancelPointRound(token!, roomId!, {
-                              reason: "User cancel",
-                            });
-                            return;
-                          }
-                          const num = Number(v);
-                          if (!isNaN(num)) {
-                            await api.submitPoint(token!, roomId!, me.uid, num);
-                          }
-                        }}
-                        className="px-3 py-1 bg-green-600 rounded"
-                      >
-                        Submit
-                      </button>
-                    ) : (
-                      <span className="text-gray-500">—</span>
-                    )}
+              <div className="space-y-4">
+                {/* プログレス表示 */}
+                <div>
+                  <p className="text-sm text-gray-300 mb-1">
+                    {submittedBy.size} / {room.members.length}
+                  </p>
+                  <div className="w-full h-3 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 transition-all"
+                      style={{
+                        width: `${
+                          (submittedBy.size / room.members.length) * 100
+                        }%`,
+                      }}
+                    />
                   </div>
-                ))}
+                </div>
+
+                {/* 入力フォーム（自分用） */}
+                {!submittedBy.has(me.uid) && (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const formData = new FormData(e.currentTarget);
+                      const value = Number(formData.get("point"));
+                      if (!isNaN(value)) {
+                        await api.submitPoint(token!, roomId!, me.uid, value);
+                      }
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <input
+                      type="number"
+                      name="point"
+                      placeholder=""
+                      className="w-24 px-3 py-1 bg-gray-800 border border-gray-600 text-white rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                    <button
+                      type="submit"
+                      className="flex items-center gap-1 px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded font-semibold"
+                    >
+                      <span className="material-symbols-outlined text-base">
+                        send
+                      </span>
+                    </button>
+                  </form>
+                )}
+
+                {/* Finalizeボタン（全員提出時のみ） */}
                 {submittedBy.size === room.members.length && (
                   <button
                     onClick={() => api.finalizePointRound(token!, roomId!)}
-                    className="w-full py-2 bg-indigo-600 rounded"
+                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold transition"
                   >
-                    Finalize
+                    Finalize Round
                   </button>
                 )}
               </div>
             )}
             {finalTable && (
-              <div className="mt-4 space-y-2">
-                <h3 className="text-white font-medium">Results</h3>
-                {Object.entries(finalTable).map(([uid, v]) => (
-                  <div key={uid} className="flex justify-between text-gray-200">
-                    <span>{uid}</span>
-                    <span>{v}pt</span>
+              <div className="mt-4 space-y-4">
+                {/* 結果表示 */}
+                <div>
+                  <h3 className="text-white font-semibold text-lg mb-2">
+                    Results
+                  </h3>
+                  <div className="space-y-1">
+                    {Object.entries(finalTable)
+                      .sort((a, b) => b[1] - a[1]) // スコア順にソート
+                      .map(([uid, v], i) => (
+                        <div
+                          key={uid}
+                          className={`flex justify-between items-center px-3 py-2 rounded-lg
+            ${
+              i === 0
+                ? "bg-yellow-500/10 border border-yellow-500 text-yellow-300"
+                : "bg-gray-700/40 text-gray-200"
+            }`}
+                        >
+                          <span className="font-mono truncate max-w-[8rem]">
+                            {uid}
+                          </span>
+                          <span className="font-semibold tabular-nums">
+                            {v}pt
+                          </span>
+                        </div>
+                      ))}
                   </div>
-                ))}
-                <h4 className="mt-3 text-white font-medium">Approvals</h4>
-                {room.members.map((m: any) => (
-                  <div
-                    key={m.uid}
-                    className="flex justify-between items-center"
-                  >
-                    <span className="text-gray-200">{m.uid}</span>
-                    {approvedBy.has(m.uid) ? (
-                      <span className="text-green-400">OK</span>
-                    ) : m.uid === me.uid ? (
-                      <button
-                        onClick={() =>
-                          api.approvePoint(token!, roomId!, currentRoundId!)
-                        }
-                        className="px-2 py-1 bg-indigo-600 rounded"
-                      >
-                        Approve
-                      </button>
-                    ) : (
-                      <span className="text-gray-500">—</span>
-                    )}
+                </div>
+
+                {/* 承認状況プログレスバー */}
+                <div className="space-y-2">
+                  {/* プログレス表示 */}
+                  <div>
+                    <p className="text-sm text-gray-300 mb-1">
+                      {approvedBy.size} / {room.members.length}
+                    </p>
+                    <div className="w-full h-3 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 transition-all"
+                        style={{
+                          width: `${(approvedBy.size / room.members.length) * 100}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                ))}
+
+                  {/* 自分の承認ボタン（未承認時） */}
+                  {!approvedBy.has(me.uid) && (
+                    <button
+                      onClick={() =>
+                        api.approvePoint(token!, roomId!, currentRoundId!)
+                      }
+                      className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold transition"
+                    >
+                      Approve
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* 履歴モーダル */}
+      {showApprovalSuccess && (
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center rounded-2xl z-50">
+          <span className="material-symbols-outlined text-green-400 text-5xl mb-3 animate-pop">
+            check_circle
+          </span>
+          <p className="text-white text-lg font-semibold">All Approved!</p>
+        </div>
+      )}
       {showHistoryModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
-          <div className="w-full max-w-lg bg-gray-800/60 backdrop-blur-xl rounded-2xl p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-white">Point History</h2>
-              <button
-                onClick={() => setShowHistoryModal(false)}
-                className="p-2 hover:bg-gray-700 rounded-full"
-              >
-                <span className="material-symbols-outlined text-white">
-                  close
-                </span>
-              </button>
+          <div className="w-full max-w-lg bg-gray-900/80 border border-gray-700 shadow-2xl backdrop-blur-xl rounded-2xl p-6">
+            {/* ヘッダー */}
+            <div className="flex justify-start  items-center mb-4">
+              <h2 className="text-xl font-bold text-white tracking-wide">
+                History
+              </h2>
             </div>
-            <div className="space-y-3 max-h-80 overflow-y-auto">
-              {pointHistory.length === 0 ? (
-                <p className="text-gray-400">No history.</p>
+
+            {/* タブボタン */}
+            <div className="flex justify-center space-x-4 mb-4">
+              {["PON", "SATO"].map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setHistoryType(type as "PON" | "SATO")}
+                  className={`px-5 py-1.5 rounded-full text-sm font-medium border transition-all duration-200
+              ${
+                historyType === type
+                  ? "bg-white text-gray-900 shadow-md"
+                  : "bg-transparent text-gray-400 border-gray-600 hover:bg-gray-700 hover:text-white"
+              }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+
+            {/* 履歴表示 */}
+            <div className="space-y-3 max-h-[20rem] overflow-y-auto min-h-[20rem] transition-all scrollbar-hide">
+              {filteredHistory.length === 0 ? (
+                <p className="text-gray-500 text-center pt-10">No history.</p>
               ) : (
-                pointHistory.map((rec) => (
-                  <div
-                    key={rec.round_id}
-                    className="bg-gray-700/40 p-3 rounded-lg"
-                  >
-                    <div className="flex justify-between text-gray-200">
-                      <span>#{rec.round_id}</span>
-                      <span className="text-sm">
-                        {new Date(rec.created_at).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-gray-300">
-                      {rec.points.map((p: any) => (
-                        <div key={p.uid} className="flex justify-between">
-                          <span>{p.uid}</span>
-                          <span>{p.value}pt</span>
+                filteredHistory.map((rec) => {
+                  // SATO: 送金形式（送信者→受信者）
+                  if (historyType === "SATO") {
+                    const sender = rec.points.find((p: any) => p.value > 0);
+                    const receiver = rec.points.find((p: any) => p.value < 0);
+                    const amount = Math.abs(
+                      sender?.value || receiver?.value || 0,
+                    );
+
+                    return (
+                      <div
+                        key={rec.round_id}
+                        className="bg-gray-800/60 border border-gray-700 rounded-lg p-4"
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-mono text-blue-300">
+                            {rec.round_id}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {new Date(rec.created_at).toLocaleString()}
+                          </span>
                         </div>
-                      ))}
+                        <div className="flex items-center justify-between text-sm text-gray-300 px-1">
+                          <span className="truncate max-w-[8rem] text-green-400">
+                            {sender?.uid || "???"}
+                          </span>
+                          <span className="mx-2 text-white text-base">→</span>
+                          <span className="truncate max-w-[8rem] text-red-400 text-right">
+                            {receiver?.uid || "???"}
+                          </span>
+                        </div>
+                        <div className="text-center mt-2 text-white text-sm font-semibold">
+                          {amount} sato
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // PON: 勝ち負け形式
+                  return (
+                    <div
+                      key={rec.round_id}
+                      className="bg-gray-800/60 border border-gray-700 rounded-lg p-4"
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm font-mono text-blue-300">
+                          {rec.round_id}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(rec.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        {rec.points.map((p: any) => (
+                          <div
+                            key={p.uid}
+                            className="flex justify-between text-gray-300"
+                          >
+                            <span className="truncate max-w-[8rem]">
+                              {p.uid}
+                            </span>
+                            <span
+                              className={
+                                p.value > 0
+                                  ? "text-green-400 font-semibold"
+                                  : "text-red-400 font-semibold"
+                              }
+                            >
+                              {p.value > 0 ? "+" : ""}
+                              {p.value}pt
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
         </div>
       )}
-
       {/* 精算モーダル */}
       {showSettleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
@@ -601,6 +779,47 @@ export default function RoomPage() {
         </div>
       )}
 
+      {/* ————— 参加申請モーダル ————— */}
+      {joinReq && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-6 rounded-xl">
+            <p className="text-white mb-4">
+              {joinReq.from_uid} さんが参加を申請しています。
+            </p>
+            <div className="flex gap-4">
+              <button
+                onClick={async () => {
+                  try {
+                    await api.approveMember(token!, roomId!, joinReq.from_uid);
+                  } catch (e) {
+                    console.error("承認に失敗:", e);
+                    alert("承認に失敗しました");
+                  } finally {
+                    setJoinReq(null);
+                  }
+                }}
+                className="px-4 py-2 bg-green-600 rounded"
+              >
+                承認
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.rejectMember(token!, roomId!, joinReq.from_uid);
+                  } catch (e) {
+                    console.error("Reject failed:", e);
+                  } finally {
+                    setJoinReq(null); // 成功・失敗に関係なく閉じる
+                  }
+                }}
+                className="px-4 py-2 bg-red-600 rounded"
+              >
+                拒否
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 精算リクエスト承認モーダル */}
       {pendingReq && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">

@@ -1,4 +1,4 @@
-// app/rooms/[roomId]/page.tsx
+// app/rooms/[roomId]/moto.tsx
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
