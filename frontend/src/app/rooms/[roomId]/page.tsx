@@ -25,6 +25,7 @@ export default function RoomPage() {
   const [msg, setMsg] = useState("");
   const [myBalance, setMyBalance] = useState<number>(0);
 
+  const [amountInput, setAmountInput] = useState<string>("");
   const [showApprovalSuccess, setShowApprovalSuccess] = useState(false);
   const [historyType, setHistoryType] = useState<"PON" | "SATO">("PON");
   // メンバーのバランス
@@ -65,6 +66,9 @@ export default function RoomPage() {
     onlineUsers: ctxOnlineUsers,
     onEvent,
   } = usePresence();
+
+  // RoomPage コンポーネントの中で
+  // 「自分以外にオンラインユーザーがいるか」を判定する
 
   // supabase セッション取得
   useEffect(() => {
@@ -120,7 +124,7 @@ export default function RoomPage() {
       });
     });
     setBalances(bal);
-    if (me) setMyBalance(bal[me.uid] ?? 0);
+    if (me?.uid) setMyBalance(bal[me.uid] ?? 0);
   }, [pointHistory, room, me]);
 
   useEffect(() => {
@@ -229,6 +233,16 @@ export default function RoomPage() {
     }
   };
 
+  // ローディング / エラーハンドリング
+  if (!token || !me) return <p className="text-center mt-20">Loading…</p>;
+
+  // ここ以降なら me は必ず非 null
+  const myUid = me.uid;
+  const otherOnlineCount =
+    (ctxOnlineUsers[roomId]?.size || 0) -
+    (ctxOnlineUsers[roomId]?.has(myUid) ? 1 : 0);
+  const hasOtherOnline = otherOnlineCount > 0;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-gray-100 flex flex-col">
       {/* ヘッダー */}
@@ -278,15 +292,24 @@ export default function RoomPage() {
 
         {/* 機能ボタン */}
         <div className="grid grid-cols-3 gap-4 mb-6">
+          {/* Settle */}
           <button
-            onClick={() => setShowSettleModal(true)}
-            className="bg-gray-800 p-4 rounded flex flex-col items-center"
+            onClick={() => hasOtherOnline && setShowSettleModal(true)}
+            disabled={!hasOtherOnline}
+            className={`p-4 rounded flex flex-col items-center transition
+      ${
+        hasOtherOnline
+          ? "bg-gray-800 hover:bg-gray-700 cursor-pointer"
+          : "bg-gray-700/50 cursor-not-allowed opacity-50"
+      }`}
           >
             <span className="material-symbols-outlined text-purple-400 text-2xl">
               payments
             </span>
             <span className="mt-1">Settle</span>
           </button>
+
+          {/* History */}
           <button
             onClick={() => setShowHistoryModal(true)}
             className="bg-gray-800 p-4 rounded flex flex-col items-center"
@@ -296,9 +319,17 @@ export default function RoomPage() {
             </span>
             <span className="mt-1">History</span>
           </button>
+
+          {/* Round */}
           <button
-            onClick={() => setShowPointModal(true)}
-            className="bg-gray-800 p-4 rounded flex flex-col items-center"
+            onClick={() => hasOtherOnline && setShowPointModal(true)}
+            disabled={!hasOtherOnline}
+            className={`p-4 rounded flex flex-col items-center transition
+      ${
+        hasOtherOnline
+          ? "bg-gray-800 hover:bg-gray-700 cursor-pointer"
+          : "bg-gray-700/50 cursor-not-allowed opacity-50"
+      }`}
           >
             <span className="material-symbols-outlined text-indigo-400 text-2xl">
               leaderboard
@@ -332,182 +363,319 @@ export default function RoomPage() {
       </main>
 
       {/* ——— 以下、モーダル類 ——— */}
-
       {/* ポイントラウンドモーダル */}
       {showPointModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
-          <div className="w-full max-w-md bg-gray-800/60 backdrop-blur-xl rounded-2xl p-6 border border-gray-700 shadow-2xl">
-            <div className="flex justify-between items-center mb-4">
-              {/* タイトル＋アイコン */}
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-yellow-400 text-2xl">
-                  stars
-                </span>
-                <h2 className="text-xl font-bold text-white tracking-wide">
-                  PON
-                </h2>
-              </div>
+        <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-purple-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
+          <div className="w-full max-w-md bg-gradient-to-br from-gray-900/90 via-gray-800/80 to-gray-900/90 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
+            {/* 背景装飾 */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-yellow-400/10 to-transparent rounded-full blur-2xl"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-blue-500/10 to-transparent rounded-full blur-xl"></div>
 
-              {/* 閉じるボタン */}
-              <button
-                onClick={() => setShowPointModal(false)}
-                className="w-8 h-8 flex items-center justify-center hover:bg-gray-700/50 rounded-full transition"
-              >
-                <span className="material-symbols-outlined text-white text-base">
-                  close
-                </span>
-              </button>
-            </div>
-            {!isRoundActive &&
-              !finalTable &&
-              (room.members.length >= 2 ? (
-                <button
-                  onClick={() => api.startPointRound(token!, roomId!)}
-                  className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition duration-200"
-                >
-                  Start
-                </button>
-              ) : (
-                <button
-                  disabled
-                  className="w-full py-2.5 rounded-lg bg-blue-600/30 text-gray-400 font-semibold shadow-inner cursor-not-allowed"
-                  title="2人以上のメンバーが必要です"
-                >
-                  Start Round
-                </button>
-              ))}
-            {isRoundActive && (
-              <div className="space-y-4">
-                {/* プログレス表示 */}
-                <div>
-                  <p className="text-sm text-gray-300 mb-1">
-                    {submittedBy.size} / {room.members.length}
-                  </p>
-                  <div className="w-full h-3 bg-gray-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 transition-all"
-                      style={{
-                        width: `${
-                          (submittedBy.size / room.members.length) * 100
-                        }%`,
-                      }}
-                    />
+            <div className="relative z-10">
+              <div className="flex justify-between items-center mb-6">
+                {/* タイトル＋アイコン */}
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg">
+                    <span className="material-symbols-outlined text-white text-xl">
+                      stars
+                    </span>
                   </div>
+                  <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent tracking-wide">
+                    PON
+                  </h2>
                 </div>
 
-                {/* 入力フォーム（自分用） */}
-                {!submittedBy.has(me.uid) && (
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      const formData = new FormData(e.currentTarget);
-                      const value = Number(formData.get("point"));
-                      if (!isNaN(value)) {
-                        await api.submitPoint(token!, roomId!, me.uid, value);
-                      }
-                    }}
-                    className="flex items-center gap-2"
+                {/* 閉じるボタン */}
+                <button
+                  onClick={() => setShowPointModal(false)}
+                  className="w-10 h-10 flex items-center justify-center hover:bg-gray-700/60 rounded-xl transition-all duration-200 hover:scale-105 group"
+                >
+                  <span className="material-symbols-outlined text-gray-400 group-hover:text-white text-lg transition-colors">
+                    close
+                  </span>
+                </button>
+              </div>
+
+              {!isRoundActive &&
+                !finalTable &&
+                (hasOtherOnline ? (
+                  <button
+                    onClick={() => api.startPointRound(token!, roomId!)}
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-500 hover:via-blue-600 hover:to-indigo-600 text-white font-semibold shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] relative overflow-hidden group"
                   >
-                    <input
-                      type="number"
-                      name="point"
-                      placeholder=""
-                      className="w-24 px-3 py-1 bg-gray-800 border border-gray-600 text-white rounded focus:outline-none focus:ring-2 focus:ring-green-500"
-                    />
+                    <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    <span className="relative flex items-center justify-center gap-2">
+                      <span className="material-symbols-outlined">
+                        play_arrow
+                      </span>
+                      Start Round
+                    </span>
+                  </button>
+                ) : (
+                  <div className="relative">
                     <button
-                      type="submit"
-                      className="flex items-center gap-1 px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded font-semibold"
+                      disabled
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-gray-700/50 to-gray-600/50 text-gray-400 font-semibold shadow-inner cursor-not-allowed relative overflow-hidden"
                     >
-                      <span className="material-symbols-outlined text-base">
-                        send
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="material-symbols-outlined opacity-50">
+                          group
+                        </span>
+                        Start Round
                       </span>
                     </button>
-                  </form>
-                )}
-
-                {/* Finalizeボタン（全員提出時のみ） */}
-                {submittedBy.size === room.members.length && (
-                  <button
-                    onClick={() => api.finalizePointRound(token!, roomId!)}
-                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold transition"
-                  >
-                    Finalize Round
-                  </button>
-                )}
-              </div>
-            )}
-            {finalTable && (
-              <div className="mt-4 space-y-4">
-                {/* 結果表示 */}
-                <div>
-                  <h3 className="text-white font-semibold text-lg mb-2">
-                    Results
-                  </h3>
-                  <div className="space-y-1">
-                    {Object.entries(finalTable)
-                      .sort((a, b) => b[1] - a[1]) // スコア順にソート
-                      .map(([uid, v], i) => (
-                        <div
-                          key={uid}
-                          className={`flex justify-between items-center px-3 py-2 rounded-lg
-            ${
-              i === 0
-                ? "bg-yellow-500/10 border border-yellow-500 text-yellow-300"
-                : "bg-gray-700/40 text-gray-200"
-            }`}
-                        >
-                          <span className="font-mono truncate max-w-[8rem]">
-                            {uid}
-                          </span>
-                          <span className="font-semibold tabular-nums">
-                            {v}pt
-                          </span>
-                        </div>
-                      ))}
+                    <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 bg-red-500/90 text-white text-xs px-3 py-1 rounded-full animate-pulse">
+                      Need 2+ members
+                    </div>
                   </div>
-                </div>
+                ))}
 
-                {/* 承認状況プログレスバー */}
-                <div className="space-y-2">
+              {isRoundActive && (
+                <div className="space-y-6">
                   {/* プログレス表示 */}
-                  <div>
-                    <p className="text-sm text-gray-300 mb-1">
-                      {approvedBy.size} / {room.members.length}
-                    </p>
-                    <div className="w-full h-3 bg-gray-700 rounded-full overflow-hidden">
+                  <div className="bg-gray-800/40 rounded-2xl p-4 border border-gray-700/30">
+                    <div className="flex justify-between items-center mb-3">
+                      <p className="text-sm font-medium text-gray-300">
+                        Progress
+                      </p>
+                      <p className="text-sm font-bold text-white tabular-nums">
+                        {submittedBy.size} / {room.members.length}
+                      </p>
+                    </div>
+                    <div className="w-full h-4 bg-gray-700/50 rounded-full overflow-hidden shadow-inner">
                       <div
-                        className="h-full bg-green-500 transition-all"
+                        className="h-full bg-gradient-to-r from-green-500 to-emerald-400 transition-all duration-700 ease-out rounded-full shadow-lg relative"
                         style={{
-                          width: `${(approvedBy.size / room.members.length) * 100}%`,
+                          width: `${
+                            (submittedBy.size / room.members.length) * 100
+                          }%`,
                         }}
-                      />
+                      >
+                        <div className="absolute inset-0 bg-white/20 rounded-full animate-pulse"></div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* 自分の承認ボタン（未承認時） */}
-                  {!approvedBy.has(me.uid) && (
+                  {/* 入力フォーム（自分用） */}
+                  {!submittedBy.has(me.uid) && (
+                    <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-5 border border-gray-600/30">
+                      <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                        <span className="material-symbols-outlined text-blue-400">
+                          edit
+                        </span>
+                        Your Estimate
+                      </h3>
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const formData = new FormData(e.currentTarget);
+                          const value = Number(formData.get("point"));
+                          if (!isNaN(value)) {
+                            await api.submitPoint(
+                              token!,
+                              roomId!,
+                              me.uid,
+                              value,
+                            );
+                          }
+                        }}
+                        className="flex items-center gap-3"
+                      >
+                        <div className="relative flex-1">
+                          <input
+                            type="number"
+                            name="point"
+                            placeholder="Enter points..."
+                            className="w-full px-4 py-3 bg-gray-900/60 border border-gray-600/50 text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-200 placeholder-gray-400"
+                          />
+                          <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 focus-within:opacity-100 transition-opacity duration-200 pointer-events-none"></div>
+                        </div>
+                        <button
+                          type="submit"
+                          className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-xl font-semibold transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl group"
+                        >
+                          <span className="material-symbols-outlined text-lg group-hover:rotate-12 transition-transform">
+                            send
+                          </span>
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* 提出済み状態 */}
+                  {submittedBy.has(me.uid) && (
+                    <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-2xl p-4 flex items-center gap-3">
+                      <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center animate-pulse">
+                        <span className="material-symbols-outlined text-white text-sm">
+                          check
+                        </span>
+                      </div>
+                      <span className="text-green-300 font-medium">
+                        Submitted! Waiting for others...
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Finalizeボタン（全員提出時のみ） */}
+                  {submittedBy.size === room.members.length && (
                     <button
-                      onClick={() =>
-                        api.approvePoint(token!, roomId!, currentRoundId!)
-                      }
-                      className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold transition"
+                      onClick={() => api.finalizePointRound(token!, roomId!)}
+                      className="w-full py-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:via-purple-500 hover:to-indigo-600 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] shadow-xl hover:shadow-2xl relative overflow-hidden group animate-pulse"
                     >
-                      Approve
+                      <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <span className="relative flex items-center justify-center gap-2">
+                        <span className="material-symbols-outlined">grade</span>
+                        Finalize Round
+                      </span>
                     </button>
                   )}
                 </div>
-              </div>
-            )}
+              )}
+
+              {finalTable && (
+                <div className="mt-6 space-y-6">
+                  {/* 結果表示 */}
+                  <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-5 border border-gray-600/30">
+                    <h3 className="text-white font-bold text-xl mb-4 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-yellow-400">
+                        trophy
+                      </span>
+                      Results
+                    </h3>
+                    <div className="space-y-2">
+                      {Object.entries(finalTable)
+                        .sort((a, b) => b[1] - a[1]) // スコア順にソート
+                        .map(([uid, v], i) => (
+                          <div
+                            key={uid}
+                            className={`flex justify-between items-center px-4 py-3 rounded-xl transition-all duration-300 transform hover:scale-[1.01] relative overflow-hidden
+              ${
+                i === 0
+                  ? "bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-400/40 text-yellow-300 shadow-lg"
+                  : i === 1
+                    ? "bg-gradient-to-r from-gray-400/10 to-gray-500/10 border border-gray-400/30 text-gray-200"
+                    : i === 2
+                      ? "bg-gradient-to-r from-amber-600/10 to-orange-600/10 border border-amber-600/30 text-amber-200"
+                      : "bg-gray-700/40 border border-gray-600/20 text-gray-300"
+              }`}
+                          >
+                            {i === 0 && (
+                              <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-bl from-yellow-400/20 to-transparent rounded-full blur-xl"></div>
+                            )}
+                            <div className="flex items-center gap-3 relative z-10">
+                              {i < 3 && (
+                                <span className="material-symbols-outlined text-lg">
+                                  {i === 0
+                                    ? "trophy"
+                                    : i === 1
+                                      ? "military_tech"
+                                      : "workspace_premium"}
+                                </span>
+                              )}
+                              <span className="font-mono font-medium truncate max-w-[8rem]">
+                                {uid}
+                              </span>
+                            </div>
+                            <span className="font-bold tabular-nums text-lg relative z-10 flex items-center gap-1">
+                              {v}
+                              <span className="text-sm opacity-80">pt</span>
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  {/* 承認状況プログレスバー */}
+                  <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 rounded-2xl p-5 border border-indigo-500/20">
+                    <h4 className="text-white font-semibold mb-4 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-indigo-400">
+                        how_to_vote
+                      </span>
+                      Approval Status
+                    </h4>
+
+                    <div className="space-y-4">
+                      {/* プログレス表示 */}
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-sm font-medium text-indigo-300">
+                            Approved
+                          </p>
+                          <p className="text-sm font-bold text-white tabular-nums">
+                            {approvedBy.size} / {room.members.length}
+                          </p>
+                        </div>
+                        <div className="w-full h-4 bg-gray-700/50 rounded-full overflow-hidden shadow-inner">
+                          <div
+                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700 ease-out rounded-full shadow-lg relative"
+                            style={{
+                              width: `${(approvedBy.size / room.members.length) * 100}%`,
+                            }}
+                          >
+                            <div className="absolute inset-0 bg-white/20 rounded-full animate-pulse"></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 自分の承認ボタン（未承認時） */}
+                      {!approvedBy.has(me.uid) && (
+                        <button
+                          onClick={() =>
+                            api.approvePoint(token!, roomId!, currentRoundId!)
+                          }
+                          className="w-full py-4 bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 hover:from-indigo-500 hover:via-blue-500 hover:to-indigo-600 text-white rounded-xl font-semibold transition-all duration-300 transform hover:scale-[1.02] shadow-lg hover:shadow-xl relative overflow-hidden group"
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                          <span className="relative flex items-center justify-center gap-2">
+                            <span className="material-symbols-outlined">
+                              thumb_up
+                            </span>
+                            Approve Results
+                          </span>
+                        </button>
+                      )}
+
+                      {/* 承認済み状態 */}
+                      {approvedBy.has(me.uid) && (
+                        <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-xl p-4 flex items-center gap-3">
+                          <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white text-sm">
+                              verified
+                            </span>
+                          </div>
+                          <span className="text-green-300 font-medium">
+                            You've approved these results
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {showApprovalSuccess && (
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center rounded-2xl z-50">
-          <span className="material-symbols-outlined text-green-400 text-5xl mb-3 animate-pop">
-            check_circle
-          </span>
-          <p className="text-white text-lg font-semibold">All Approved!</p>
+        <div className="absolute inset-0 bg-gradient-to-br from-black/80 via-green-900/20 to-black/80 backdrop-blur-lg flex flex-col items-center justify-center rounded-3xl z-50">
+          <div className="relative">
+            <div className="absolute inset-0 w-20 h-20 bg-green-400/30 rounded-full animate-ping"></div>
+            <div className="relative w-16 h-16 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full flex items-center justify-center shadow-2xl">
+              <span className="material-symbols-outlined text-white text-3xl animate-bounce">
+                check_circle
+              </span>
+            </div>
+          </div>
+          <p className="text-white text-xl font-bold mt-4 animate-fade-in-up">
+            All Approved!
+          </p>
+          <p
+            className="text-green-300 text-sm mt-1 animate-fade-in-up"
+            style={{ animationDelay: "0.2s" }}
+          >
+            Round completed successfully
+          </p>
         </div>
       )}
       {showHistoryModal && (
@@ -629,76 +797,126 @@ export default function RoomPage() {
       {showSettleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
           <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md">
-            <h2 className="text-white mb-4">Settlement</h2>
-            <div className="flex flex-wrap gap-3 mb-4">
+            <h2 className="text-white text-2xl font-semibold mb-4">SATO</h2>
+
+            {/* 送金可能な相手だけをリスト */}
+            <div className="flex flex-wrap gap-4 mb-4">
+              {/*
+          自分の残高がマイナスかつ相手の残高がプラスのときのみ表示
+        */}
               {room.members
-                .filter((m: any) => m.uid !== me.uid)
+                .filter((m: any) => {
+                  if (m.uid === me.uid) return false;
+                  const theirBal = balances[m.uid] || 0;
+                  // 自分の残高がマイナスで、相手に支払う余地がある場合
+                  return myBalance < 0 && theirBal > 0;
+                })
                 .map((m: any) => {
+                  // この相手へ送れる上限
+                  const maxPay = Math.min(-myBalance, balances[m.uid]);
                   const isSel = settleInput.to_uid === m.uid;
                   return (
                     <button
                       key={m.uid}
-                      onClick={() =>
-                        setSettleInput((s) => ({ ...s, to_uid: m.uid }))
+                      onClick={
+                        () => setSettleInput({ to_uid: m.uid, amount: 0 }) // maxPay を初期セットしない
                       }
-                      className={`w-12 h-12 flex flex-col items-center justify-center rounded-full ${isSel ? "ring-2 ring-purple-400 bg-purple-600" : "bg-gray-700"}`}
+                      className={`flex flex-col items-center justify-center w-16 h-16 rounded-full border-2 ${
+                        isSel
+                          ? "border-purple-400 bg-purple-600"
+                          : "border-gray-600 bg-gray-700"
+                      } hover:scale-105 transition`}
                     >
-                      <span className="font-semibold">{m.uid.charAt(0)}</span>
-                      <span className="text-xs">{balances[m.uid] || 0}pt</span>
+                      {/* 大きなアイコン */}
+                      <span className="text-2xl font-bold">
+                        {m.uid.charAt(0)}
+                      </span>
+                      {/* この相手へ送れる最大額 */}
+                      <span className="text-xs text-gray-200 mt-1">
+                        {maxPay.toLocaleString()}
+                      </span>
                     </button>
                   );
                 })}
             </div>
-            {settleInput.to_uid && (
-              <p className="text-gray-300 mb-2">
-                送金可能上限:{" "}
-                {Math.min(
-                  Math.max(0, -balances[me.uid] || 0),
-                  balances[settleInput.to_uid] || 0,
-                )}{" "}
-                円
-              </p>
+            {/*
+        送金可能相手がいなければ案内文
+      */}
+            {room.members
+              .filter((m: any) => m.uid !== me.uid)
+              .every(
+                (m: any) => !(myBalance < 0 && (balances[m.uid] || 0) > 0),
+              ) && (
+              <p className="text-gray-400 mb-4">送金可能な相手がいません。</p>
             )}
-            <div className="flex gap-2">
-              <input
-                type="number"
-                value={settleInput.amount}
-                onChange={(e) =>
-                  setSettleInput((s) => ({
-                    ...s,
-                    amount: Number(e.target.value),
-                  }))
-                }
-                placeholder="金額"
-                className="flex-1 p-2 bg-gray-700 rounded text-center"
-              />
-              <button
-                onClick={async () => {
-                  if (!settleInput.to_uid || settleInput.amount <= 0) {
-                    alert("相手と金額を正しく入力してください");
-                    return;
-                  }
-                  const maxPay = Math.min(
-                    Math.max(0, -balances[me.uid] || 0),
-                    balances[settleInput.to_uid] || 0,
-                  );
-                  if (settleInput.amount > maxPay) {
-                    alert(`最大送金可能額は ${maxPay} 円です`);
-                    return;
-                  }
-                  await api.requestSettlement(
-                    token!,
-                    roomId!,
-                    settleInput.to_uid,
-                    settleInput.amount,
-                  );
-                  setSettleInput({ to_uid: "", amount: 0 });
-                  setShowSettleModal(false);
-                }}
-                className="px-4 py-2 bg-purple-600 rounded"
-              >
-                Send
-              </button>
+
+            {/* 金額入力＆送信 */}
+            <div className="flex flex-col gap-2">
+              {(() => {
+                // 選択中の相手へ送れる上限
+                const maxPay = settleInput.to_uid
+                  ? Math.min(-myBalance, balances[settleInput.to_uid] || 0)
+                  : 0;
+                const isValid =
+                  settleInput.to_uid !== "" &&
+                  settleInput.amount >= 1 &&
+                  settleInput.amount <= maxPay;
+
+                return (
+                  <>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={amountInput}
+                      onChange={(e) => {
+                        let raw = e.target.value;
+                        raw = raw.replace(/[０-９]/g, (s) =>
+                          String.fromCharCode(s.charCodeAt(0) - 65248),
+                        );
+                        if (!/^\d*$/.test(raw)) return;
+
+                        const cleaned = raw.replace(/^0+(?=\d)/, "");
+
+                        setAmountInput(cleaned);
+                        setSettleInput((s) => ({
+                          ...s,
+                          amount: Number(cleaned || "0"),
+                        }));
+                      }}
+                      placeholder="SATO"
+                      className="w-full p-2 bg-gray-700 rounded text-center text-white"
+                    />
+                    {/* 範囲外エラー */}
+                    {!isValid && settleInput.to_uid && (
+                      <p className="text-red-400 text-sm text-center">
+                        1 - {maxPay.toLocaleString()}
+                      </p>
+                    )}
+                    <button
+                      onClick={async () => {
+                        if (!isValid) return;
+                        await api.requestSettlement(
+                          token!,
+                          roomId!,
+                          settleInput.to_uid,
+                          settleInput.amount,
+                        );
+                        setSettleInput({ to_uid: "", amount: 0 });
+                        setShowSettleModal(false);
+                      }}
+                      disabled={!isValid}
+                      className={`w-full py-2 rounded text-white font-semibold transition ${
+                        isValid
+                          ? "bg-purple-600 hover:bg-purple-500"
+                          : "bg-purple-600/30 cursor-not-allowed"
+                      }`}
+                    >
+                      Sato
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
