@@ -20,6 +20,7 @@ export default function RoomPage() {
   const [token, setToken] = useState<string | null>(null);
   const [me, setMe] = useState<any>(null);
   const [room, setRoom] = useState<any>(null);
+ const [userMap, setUserMap] = useState<Record<string, { display_name: string; icon_url?: string }>>({});
   const [pointHistory, setPointHistory] = useState<any[]>([]);
   const [settleHistory, setSettleHistory] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
@@ -59,6 +60,11 @@ export default function RoomPage() {
   const [selectedMember, setSelectedMember] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
+  // state
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [updating, setUpdating] = useState(false);
+
   const {
     wsReady,
     enterRoom,
@@ -76,7 +82,28 @@ export default function RoomPage() {
       setToken(data.session?.access_token ?? null);
     });
   }, []);
+// roomを取得したら編集欄にも反映
+useEffect(() => {
+  setEditName(room?.name || "");
+  setEditDesc(room?.description || "");
+}, [room]);
 
+// 編集処理
+const handleUpdateRoom = async () => {
+  setUpdating(true);
+  try {
+    await api.updateRoom(token, roomId, {
+      name: editName.trim(),
+      description: editDesc.trim()
+    });
+    setRoom({ ...room, name: editName, description: editDesc });
+    setShowSettingsModal(false);
+  } catch (err: any) {
+    setErrorMessage(err.message || "更新に失敗しました");
+  } finally {
+    setUpdating(false);
+  }
+};
   // me 取得
   useEffect(() => {
     if (!token) return;
@@ -86,6 +113,20 @@ export default function RoomPage() {
       .catch(() => router.replace("/"));
   }, [token, router]);
 
+ useEffect(() => {
+    if (!token) return;
+    api.getListUsers(token)
+      .then((users: Array<{ uid: string; display_name: string; icon_url?: string }>) => {
+        const map: typeof userMap = {};
+        users.forEach(u => {
+          map[u.uid] = { display_name: u.display_name, icon_url: u.icon_url };
+        });
+        setUserMap(map);
+      })
+      .catch(err => {
+        console.error("Failed to fetch user list:", err);
+      });
+  }, [token]);
   // roomData & histories 初期取得
   useEffect(() => {
     if (!token || !roomId) return;
@@ -359,56 +400,64 @@ export default function RoomPage() {
         </div>
 
         {/* メンバー一覧 */}
-        <section>
-          <h2 className="text-lg font-semibold mb-4">Members</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
-            {room.members.map((m: any) => {
-              const online = ctxOnlineUsers[roomId]?.has(m.uid);
-              const bal = balances[m.uid] || 0;
-              return (
-                <button
-                  key={m.uid}
-                  onClick={() => setSelectedMember(m)}
-                  className="relative flex flex-col items-center bg-gray-800 rounded-2xl p-4 hover:bg-gray-700 transition"
-                >
-                  {/* オンラインインジケーター */}
-                  <span
-                    className={`
+<section>
+  <h2 className="text-lg font-semibold mb-4">Members</h2>
+  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+    {room.members.map((m: any) => {
+      // lookup：userMap に存在すれば display_name, icon_url を取得
+      const info = userMap[m.uid] || { display_name: m.uid, icon_url: undefined };
+      const online = ctxOnlineUsers[roomId]?.has(m.uid);
+      const bal = balances[m.uid] || 0;
+      return (
+        <button
+          key={m.uid}
+          onClick={() => setSelectedMember(m)}
+          className="relative flex flex-col items-center bg-gray-800 rounded-2xl p-4 hover:bg-gray-700 transition"
+        >
+          {/* オンラインインジケーター */}
+          <span
+            className={`
               absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-gray-800
               ${online ? "bg-green-400" : "bg-gray-600"}
             `}
-                    title={online ? "Online" : "Offline"}
-                  />
+            title={online ? "Online" : "Offline"}
+          />
 
-                  {/* アバター */}
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 overflow-hidden flex items-center justify-center mb-2 shadow-lg">
-                    <span className="text-2xl font-bold text-white">
-                      {m.uid.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
+          {/* アバター */}
+          {info.icon_url ? (
+            <img
+              src={info.icon_url}
+              alt={info.display_name}
+              className="w-16 h-16 rounded-full object-cover mb-2 shadow-lg"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-full bg-gray-700 mb-2 flex items-center justify-center text-xl text-white shadow-lg">
+              {info.display_name.charAt(0)}
+            </div>
+          )}
 
-                  {/* ユーザーID */}
-                  <span className="text-sm font-medium text-gray-200 truncate w-full text-center">
-                    {m.uid}
-                  </span>
+          {/* 表示名 */}
+          <span className="text-sm font-medium text-gray-200 truncate w-full text-center">
+            {info.display_name}
+          </span>
 
-                  {/* バランス */}
-                  <span
-                    className={`mt-1 px-2 py-1 rounded-full text-xs font-semibold ${
-                      bal > 0
-                        ? "bg-yellow-500/20 text-yellow-400"
-                        : bal < 0
-                          ? "bg-red-500/20 text-red-400"
-                          : "bg-gray-600 text-gray-300"
-                    }`}
-                  >
-                    {bal.toLocaleString()}pt
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
+          {/* バランス */}
+          <span
+            className={`mt-1 px-2 py-1 rounded-full text-xs font-semibold ${
+              bal > 0
+                ? "bg-yellow-500/20 text-yellow-400"
+                : bal < 0
+                  ? "bg-red-500/20 text-red-400"
+                  : "bg-gray-600 text-gray-300"
+            }`}
+          >
+            {bal.toLocaleString()}pt
+          </span>
+        </button>
+      );
+    })}
+  </div>
+</section>
       </main>
 
       {/* ——— 以下、モーダル類 ——— */}
@@ -457,7 +506,7 @@ export default function RoomPage() {
                       <span className="material-symbols-outlined">
                         play_arrow
                       </span>
-                      Start Round
+                      Start
                     </span>
                   </button>
                 ) : (
@@ -470,7 +519,7 @@ export default function RoomPage() {
                         <span className="material-symbols-outlined opacity-50">
                           group
                         </span>
-                        Start Round
+                        Start
                       </span>
                     </button>
                     <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 bg-red-500/90 text-white text-xs px-3 py-1 rounded-full animate-pulse">
@@ -1203,9 +1252,6 @@ export default function RoomPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-gray-800 p-6 rounded-2xl max-w-sm w-full">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-white text-lg font-semibold">
-                {selectedMember.uid}
-              </h3>
               <button
                 onClick={() => setSelectedMember(null)}
                 className="p-2 hover:bg-gray-700 rounded-full"
@@ -1215,6 +1261,21 @@ export default function RoomPage() {
                 </span>
               </button>
             </div>
+ {/* アイコン */}
+    {userMap[selectedMember.uid]?.icon_url ? (
+      <img
+        src={userMap[selectedMember.uid].icon_url}
+        alt={userMap[selectedMember.uid].display_name}
+        className="w-12 h-12 rounded-full mb-2"
+      />
+    ) : (
+      <div className="w-12 h-12 rounded-full bg-gray-700 mb-2 flex items-center justify-center text-white">
+        {userMap[selectedMember.uid]?.display_name.charAt(0)}
+      </div>
+    )}
+    <h3 className="text-white text-lg font-semibold">
+      {userMap[selectedMember.uid]?.display_name || selectedMember.uid}
+    </h3>
             <p className="text-gray-300">
               参加日時: {new Date(selectedMember.joined_at).toLocaleString()}
             </p>
@@ -1223,55 +1284,86 @@ export default function RoomPage() {
       )}
 
       {/* Room Settings モーダル */}
-      {showSettingsModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
-          <div className="w-full max-w-md bg-gray-800/80 backdrop-blur-xl rounded-2xl p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-white">Room Settings</h2>
-              <button
-                onClick={() => setShowSettingsModal(false)}
-                className="w-10 h-10 flex items-center justify-center hover:bg-gray-700 rounded-full"
-              >
-                <span className="material-symbols-outlined text-white text-xl">
-                  close
-                </span>
-              </button>
-            </div>
-            <div className="text-white space-y-4">
-              <div>
-                <h3 className="text-sm text-gray-400">Room Name</h3>
-                <p className="text-lg">{room.name}</p>
-              </div>
-              <div>
-                <h3 className="text-sm text-gray-400">Description</h3>
-                <p className="text-base">{room.description || "なし"}</p>
-              </div>
-              <div className="pt-4">
-                {room.created_by === me.uid ? (
-                  <button
-                    onClick={handleDeleteRoom}
-                    className="w-full py-2 bg-red-600 hover:bg-red-700 rounded-full text-white font-semibold"
-                  >
-                    Delete Room
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleLeaveRoom}
-                    className="w-full py-2 bg-red-600 hover:bg-red-700 rounded-full text-white font-semibold"
-                  >
-                    Leave Room
-                  </button>
-                )}
-              </div>
-              {errorMessage && (
-                <p className="text-red-400 text-sm text-center mt-2">
-                  {errorMessage}
-                </p>
-              )}
-            </div>
-          </div>
+   {/* Room Settings モーダル */}
+{showSettingsModal && (
+  <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
+    <div className="w-full max-w-md bg-gray-800/80 backdrop-blur-xl rounded-2xl p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-white">Room Settings</h2>
+        <button
+          onClick={() => setShowSettingsModal(false)}
+          className="w-10 h-10 flex items-center justify-center hover:bg-gray-700 rounded-full"
+        >
+          <span className="material-symbols-outlined text-white text-xl">
+            close
+          </span>
+        </button>
+      </div>
+      <div className="text-white space-y-4">
+        <div>
+          <h3 className="text-sm text-gray-400">Room Name</h3>
+          {room.created_by === me.uid ? (
+            <input
+              type="text"
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              maxLength={20}
+              className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          ) : (
+            <p className="text-lg">{room.name}</p>
+          )}
         </div>
-      )}
+        <div>
+          <h3 className="text-sm text-gray-400">Description</h3>
+          {room.created_by === me.uid ? (
+            <textarea
+              value={editDesc}
+              onChange={e => setEditDesc(e.target.value)}
+              maxLength={100}
+              className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          ) : (
+            <p className="text-base">{room.description || "なし"}</p>
+          )}
+        </div>
+
+        {room.created_by === me.uid && (
+          <button
+            onClick={handleUpdateRoom}
+            className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded-full text-white font-semibold mt-2"
+            disabled={updating}
+          >
+            {updating ? "Updating..." : "Update Room"}
+          </button>
+        )}
+
+        <div className="pt-4">
+          {room.created_by === me.uid ? (
+            <button
+              onClick={handleDeleteRoom}
+              className="w-full py-2 bg-red-600 hover:bg-red-700 rounded-full text-white font-semibold"
+            >
+              Delete Room
+            </button>
+          ) : (
+            <button
+              onClick={handleLeaveRoom}
+              className="w-full py-2 bg-red-600 hover:bg-red-700 rounded-full text-white font-semibold"
+            >
+              Leave Room
+            </button>
+          )}
+        </div>
+        {errorMessage && (
+          <p className="text-red-400 text-sm text-center mt-2">
+            {errorMessage}
+          </p>
+        )}
+      </div>
+    </div>
+  </div>
+)}
 
       {/* ————— 参加申請モーダル ————— */}
       {joinReq && (

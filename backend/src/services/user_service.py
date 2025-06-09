@@ -55,8 +55,14 @@ class UserService:
         return ok
 
     async def list_users(self):
-        return await self.repo.list_all()
-
+        users = await self.repo.list_all()
+        # email以外を抽出して新しいdictを作る
+        result = [
+            {k: v for k, v in user.items() if k != "email"}
+            for user in users
+        ]
+        return result
+ 
     async def delete_user(self, uid: str):
         # ルーム所属チェック
         rooms = await self.room_repo.list_rooms_for_user(uid)

@@ -13,7 +13,6 @@ class UserCreate(BaseModel):
 class UserResponse(BaseModel):
     uid: str
     display_name: str
-    email: EmailStr
     icon_url: Optional[str]
     registered_at: datetime
     is_online: Optional[bool] = None   # 追加

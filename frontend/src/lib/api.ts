@@ -36,6 +36,7 @@ export const getUserPointHistory = (token: string) =>
   api("/users/me/points/history", { token });
 export const getUserSettleHistory = (token: string) =>
   api("/users/me/settle/history", { token });
+export const getListUsers = (token: string) => api("/users", {token});
 
 export async function createUser(
   token: string,

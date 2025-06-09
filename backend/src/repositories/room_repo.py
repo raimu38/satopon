@@ -47,20 +47,30 @@ class RoomRepository:
             {"$push": {"pending_members": {"uid": uid, "requested_at": datetime.utcnow()}}}
         )
 
-    async def approve_pending_member(self, room_id: str, uid: str):
-        await self.collection.update_one(
-            {"room_id": room_id, "is_archived": False},
+    async def approve_pending_member(self, room_id: str, uid: str) -> bool:
+        result = await self.collection.update_one(
+            {
+                "room_id": room_id,
+                "is_archived": False,
+                "pending_members.uid": uid  # まだpendingな場合だけpull/push
+            },
             {
                 "$pull": {"pending_members": {"uid": uid}},
                 "$push": {"members": {"uid": uid, "joined_at": datetime.utcnow()}}
             }
         )
-
-    async def remove_pending_member(self, room_id: str, uid: str):
-        await self.collection.update_one(
-            {"room_id": room_id, "is_archived": False},
+        return result.modified_count == 1
+    # remove_pending_member
+    async def remove_pending_member(self, room_id: str, uid: str) -> bool:
+        result = await self.collection.update_one(
+            {
+                "room_id": room_id,
+                "is_archived": False,
+                "pending_members.uid": uid  # まだpendingな場合だけpull
+            },
             {"$pull": {"pending_members": {"uid": uid}}}
         )
+        return result.modified_count == 1
 
     async def remove_member(self, room_id: str, uid: str):
         await self.collection.update_one(

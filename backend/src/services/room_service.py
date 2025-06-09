@@ -138,47 +138,46 @@ class RoomService:
         if task:
             task.cancel()
 
+    # approve_member
     async def approve_member(self, room_id: str, applicant_uid: str, approver_uid: str):
         room = await self.room_repo.get_by_id(room_id)
         if not any(m["uid"] == approver_uid for m in room["members"]):
             raise HTTPException(status_code=403, detail="No permission")
-        await self.room_repo.approve_pending_member(room_id, applicant_uid)
+        ok = await self.room_repo.approve_pending_member(room_id, applicant_uid)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Already processed or not pending")
         await send_event(applicant_uid, {"type": "join_approved", "room_id": room_id})
         self._cancel_pending_timer(room_id, applicant_uid)
 
 
+    # cancel_join_request
     async def cancel_join_request(self, room_id: str, user_id: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
-        pending_members = room.get("pending_members", [])
-        if not any(m["uid"] == user_id for m in pending_members):
-            raise HTTPException(status_code=400, detail="Not in pending list")
-        await self.room_repo.remove_pending_member(room_id, user_id)
+        ok = await self.room_repo.remove_pending_member(room_id, user_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Not in pending list or already processed")
         for m in room["members"]:
             await send_event(m["uid"], {"type": "join_request_cancelled", "room_id": room_id, "user_id": user_id})
         await send_event(user_id, {"type": "join_request_cancelled", "room_id": room_id, "user_id": user_id})
         self._cancel_pending_timer(room_id, user_id)
-
+    
+    # reject_member
     async def reject_member(self, room_id: str, applicant_uid: str, approver_uid: str):
         room = await self.room_repo.get_by_id(room_id)
-        # 承認者がメンバーでなければ拒否
         if not any(m["uid"] == approver_uid for m in room["members"]):
             raise HTTPException(status_code=403, detail="No permission")
-        # pendingにいなければエラー
-        if not any(m["uid"] == applicant_uid for m in room.get("pending_members", [])):
-            raise HTTPException(status_code=400, detail="Not in pending list")
-        # pending_membersから削除のみ
-        # pending_members から削除
-        await self.room_repo.remove_pending_member(room_id, applicant_uid)
-        # 拒否されたことを申請者に通知 → クライアント側で pending_members リストから消える
-        from src.ws import send_event
+        ok = await self.room_repo.remove_pending_member(room_id, applicant_uid)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Already processed or not pending")
         await send_event(applicant_uid, {
             "type": "join_request_cancelled",
             "room_id": room_id,
             "user_id": applicant_uid
         })
-
+        self._cancel_pending_timer(room_id, applicant_uid)
+    
     async def leave_room(self, room_id: str, uid: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
