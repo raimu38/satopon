@@ -157,11 +157,11 @@ export default function RoomPage() {
           break;
         // ポイントラウンド
         // ラウンド開始通知
+        // --- WebSocket イベントハンドラ内 ---
         case "point_round_started":
-          // 既存の状態セットに加えて、
-          // アラートやトーストでユーザーに「ラウンド開始！」を通知
-          alert("ポイントラウンドが開始されました！");
-          // あとは既存の初期化処理
+          // alert("ポイントラウンドが開始されました！");
+          // モーダルを開いて新しいラウンドの UI を表示
+          setShowPointModal(true);
           setIsRoundActive(true);
           setCurrentRoundId(ev.round_id);
           setSubmittedBy(new Set());
@@ -244,21 +244,21 @@ export default function RoomPage() {
   const hasOtherOnline = otherOnlineCount > 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-gray-100 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-gray-100 flex flex-col">
       {/* ヘッダー */}
-      <header className="flex items-center justify-between px-6 py-4 backdrop-blur-lg bg-gray-900/60 border-b border-gray-700/40">
+      <header className="flex items-center justify-between px-8 py-4 backdrop-blur-lg bg-gray-900/70 border-b border-gray-700">
         <button
           onClick={() => router.push("/c402")}
-          className="p-2 hover:bg-gray-800/50 rounded"
+          className="p-2 rounded hover:bg-gray-800/50 transition"
         >
           <span className="material-symbols-outlined text-white text-2xl">
             arrow_back
           </span>
         </button>
-        <h1 className="text-xl font-semibold">{room.name}</h1>
+        <h1 className="text-2xl font-semibold tracking-wide">{room.name}</h1>
         <button
           onClick={() => setShowSettingsModal(true)}
-          className="p-2 hover:bg-gray-800/50 rounded"
+          className="p-2 rounded hover:bg-gray-800/50 transition"
         >
           <span className="material-symbols-outlined text-white text-2xl">
             settings
@@ -267,81 +267,101 @@ export default function RoomPage() {
       </header>
 
       {/* メイン */}
-      <main className="flex-grow overflow-auto px-6 py-8">
+      <main className="flex-grow overflow-auto px-8 py-6">
         {/* 自分のアイコン＆ポイント */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-28 h-28 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 overflow-hidden border-4 border-gray-700 flex items-center justify-center">
+        <div className="flex flex-col items-center mb-10">
+          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 border-4 border-gray-700 overflow-hidden flex items-center justify-center shadow-xl">
             {me.icon_url ? (
               <img
                 src={me.icon_url}
-                className="w-full h-full object-cover rounded-full"
                 alt="Your avatar"
+                className="w-full h-full object-cover rounded-full"
               />
             ) : (
-              <span className="text-5xl text-white font-bold">
+              <span className="text-6xl text-white font-bold">
                 {me.display_name.charAt(0).toUpperCase()}
               </span>
             )}
           </div>
           <div
-            className={`mt-2 text-lg font-bold ${myBalance === 0 ? "text-white" : myBalance > 0 ? "text-yellow-500" : "text-red-400"}`}
+            className={`mt-3 text-2xl font-bold ${
+              myBalance === 0
+                ? "text-gray-300"
+                : myBalance > 0
+                  ? "text-yellow-400"
+                  : "text-red-500"
+            }`}
           >
-            {myBalance} sato
+            {myBalance.toLocaleString()} sato
           </div>
         </div>
 
         {/* 機能ボタン */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-3 gap-6 mb-10">
           {/* Settle */}
           <button
             onClick={() => hasOtherOnline && setShowSettleModal(true)}
             disabled={!hasOtherOnline}
-            className={`p-4 rounded flex flex-col items-center transition
-      ${
-        hasOtherOnline
-          ? "bg-gray-800 hover:bg-gray-700 cursor-pointer"
-          : "bg-gray-700/50 cursor-not-allowed opacity-50"
-      }`}
+            className={`flex flex-col items-center p-5 rounded-2xl transition
+            ${
+              hasOtherOnline
+                ? "bg-gray-800 hover:bg-gray-700 cursor-pointer"
+                : "bg-gray-700/50 cursor-not-allowed opacity-60"
+            }
+            shadow-lg`}
           >
-            <span className="material-symbols-outlined text-purple-400 text-2xl">
+            <span className="material-symbols-outlined text-purple-400 text-3xl mb-2">
               payments
             </span>
-            <span className="mt-1">Settle</span>
+            <span className="text-sm font-medium">Sato</span>
           </button>
 
           {/* History */}
           <button
             onClick={() => setShowHistoryModal(true)}
-            className="bg-gray-800 p-4 rounded flex flex-col items-center"
+            className="flex flex-col items-center p-5 rounded-2xl bg-gray-800 hover:bg-gray-700 transition shadow-lg"
           >
-            <span className="material-symbols-outlined text-gray-400 text-2xl">
+            <span className="material-symbols-outlined text-gray-400 text-3xl mb-2">
               history
             </span>
-            <span className="mt-1">History</span>
+            <span className="text-sm font-medium">History</span>
           </button>
 
           {/* Round */}
           <button
             onClick={() => hasOtherOnline && setShowPointModal(true)}
             disabled={!hasOtherOnline}
-            className={`p-4 rounded flex flex-col items-center transition
-      ${
-        hasOtherOnline
-          ? "bg-gray-800 hover:bg-gray-700 cursor-pointer"
-          : "bg-gray-700/50 cursor-not-allowed opacity-50"
-      }`}
+            className={`
+    flex flex-col items-center p-5 rounded-2xl transition shadow-lg
+    ${
+      hasOtherOnline
+        ? isRoundActive
+          ? // ラウンド中はグラデ＋リング＋pulse
+            "bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 text-white ring-2 ring-purple-400 animate-pulse cursor-pointer"
+          : // 通常の状態
+            "bg-gray-800 hover:bg-gray-700 cursor-pointer"
+        : // オフライン
+          "bg-gray-700/50 cursor-not-allowed opacity-60"
+    }
+  `}
           >
-            <span className="material-symbols-outlined text-indigo-400 text-2xl">
+            <span
+              className={`material-symbols-outlined text-3xl mb-2 ${
+                isRoundActive ? "text-white" : "text-indigo-400"
+              }`}
+            >
               leaderboard
             </span>
-            <span className="mt-1">{isRoundActive ? "Active" : "Round"}</span>
+            <span className="text-sm font-medium">
+              {isRoundActive ? "Active" : "Round"}
+            </span>
           </button>
         </div>
 
         {/* メンバー一覧 */}
         <section>
-          <h2 className="text-white mb-2">Members & Balances</h2>
-          <div className="flex flex-wrap gap-3">
+          <h2 className="text-lg font-semibold mb-4">Members</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
             {room.members.map((m: any) => {
               const online = ctxOnlineUsers[roomId]?.has(m.uid);
               const bal = balances[m.uid] || 0;
@@ -349,12 +369,41 @@ export default function RoomPage() {
                 <button
                   key={m.uid}
                   onClick={() => setSelectedMember(m)}
-                  className={`flex flex-col items-center w-16 p-2 rounded ${online ? "bg-green-600" : "bg-gray-700"} hover:scale-105 transition`}
+                  className="relative flex flex-col items-center bg-gray-800 rounded-2xl p-4 hover:bg-gray-700 transition"
                 >
-                  <span className="text-lg font-bold">
-                    {m.uid.charAt(0).toUpperCase()}
+                  {/* オンラインインジケーター */}
+                  <span
+                    className={`
+              absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-gray-800
+              ${online ? "bg-green-400" : "bg-gray-600"}
+            `}
+                    title={online ? "Online" : "Offline"}
+                  />
+
+                  {/* アバター */}
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 overflow-hidden flex items-center justify-center mb-2 shadow-lg">
+                    <span className="text-2xl font-bold text-white">
+                      {m.uid.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+
+                  {/* ユーザーID */}
+                  <span className="text-sm font-medium text-gray-200 truncate w-full text-center">
+                    {m.uid}
                   </span>
-                  <span className="text-sm">{bal}pt</span>
+
+                  {/* バランス */}
+                  <span
+                    className={`mt-1 px-2 py-1 rounded-full text-xs font-semibold ${
+                      bal > 0
+                        ? "bg-yellow-500/20 text-yellow-400"
+                        : bal < 0
+                          ? "bg-red-500/20 text-red-400"
+                          : "bg-gray-600 text-gray-300"
+                    }`}
+                  >
+                    {bal.toLocaleString()}pt
+                  </span>
                 </button>
               );
             })}
@@ -630,7 +679,7 @@ export default function RoomPage() {
                             <span className="material-symbols-outlined">
                               thumb_up
                             </span>
-                            Approve Results
+                            Approve
                           </span>
                         </button>
                       )}
@@ -679,40 +728,58 @@ export default function RoomPage() {
         </div>
       )}
       {showHistoryModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
-          <div className="w-full max-w-lg bg-gray-900/80 border border-gray-700 shadow-2xl backdrop-blur-xl rounded-2xl p-6">
-            {/* ヘッダー */}
-            <div className="flex justify-start  items-center mb-4">
-              <h2 className="text-xl font-bold text-white tracking-wide">
-                History
-              </h2>
-            </div>
-
-            {/* タブボタン */}
-            <div className="flex justify-center space-x-4 mb-4">
-              {["PON", "SATO"].map((type) => (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in">
+          <div className="w-full max-w-3xl h-[80vh] bg-gray-900/90 backdrop-blur-xl rounded-2xl overflow-hidden flex flex-col animate-scale-up">
+            {/* ヘッダー + タブ */}
+            <div className="bg-gray-800/80 px-6 py-4 flex flex-col">
+              <div className="flex items-center justify-end mb-2">
                 <button
-                  key={type}
-                  onClick={() => setHistoryType(type as "PON" | "SATO")}
-                  className={`px-5 py-1.5 rounded-full text-sm font-medium border transition-all duration-200
-              ${
-                historyType === type
-                  ? "bg-white text-gray-900 shadow-md"
-                  : "bg-transparent text-gray-400 border-gray-600 hover:bg-gray-700 hover:text-white"
-              }`}
+                  onClick={() => setShowHistoryModal(false)}
+                  className="text-gray-400 hover:text-white p-1 rounded"
                 >
-                  {type}
+                  <span className="material-symbols-outlined text-2xl">
+                    close
+                  </span>
                 </button>
-              ))}
-            </div>
+              </div>
 
-            {/* 履歴表示 */}
-            <div className="space-y-3 max-h-[20rem] overflow-y-auto min-h-[20rem] transition-all scrollbar-hide">
+              {/* タブ */}
+              <div className="flex space-x-8">
+                {["PON", "SATO"].map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setHistoryType(type as "PON" | "SATO")}
+                    className={`
+          relative pb-2 text-sm font-medium transition
+          ${
+            historyType === type
+              ? "text-white"
+              : "text-gray-400 hover:text-gray-200"
+          }
+        `}
+                  >
+                    {type}
+                    {historyType === type && (
+                      <span className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-500 rounded-full" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* コンテンツ */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6 scrollbar-hide scrollbar-thumb-gray-700 scrollbar-track-gray-800">
               {filteredHistory.length === 0 ? (
-                <p className="text-gray-500 text-center pt-10">No history.</p>
+                <div className="flex flex-col items-center py-20">
+                  <span className="material-symbols-outlined text-gray-500 text-4xl mb-4">
+                    history
+                  </span>
+                  <p className="text-gray-500 text-lg">No history available</p>
+                  <p className="text-gray-600 text-sm mt-1">
+                    Game records will appear here
+                  </p>
+                </div>
               ) : (
-                filteredHistory.map((rec) => {
-                  // SATO: 送金形式（送信者→受信者）
+                filteredHistory.map((rec, index) => {
                   if (historyType === "SATO") {
                     const sender = rec.points.find((p: any) => p.value > 0);
                     const receiver = rec.points.find((p: any) => p.value < 0);
@@ -723,67 +790,167 @@ export default function RoomPage() {
                     return (
                       <div
                         key={rec.round_id}
-                        className="bg-gray-800/60 border border-gray-700 rounded-lg p-4"
+                        className="mx-auto max-w-2xl bg-gray-900/80 border border-gray-700 rounded-2xl p-6"
                       >
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm font-mono text-blue-300">
-                            {rec.round_id}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {new Date(rec.created_at).toLocaleString()}
+                        {/* ヘッダー */}
+                        <div className="flex justify-between items-center mb-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                              <span className="material-symbols-outlined text-white text-sm">
+                                swap_horiz
+                              </span>
+                            </div>
+                            <span className="text-sm font-mono text-blue-300 font-semibold">
+                              {rec.round_id}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-lg">
+                            {new Date(rec.created_at).toLocaleString("ja-JP", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-sm text-gray-300 px-1">
-                          <span className="truncate max-w-[8rem] text-green-400">
-                            {sender?.uid || "???"}
-                          </span>
-                          <span className="mx-2 text-white text-base">→</span>
-                          <span className="truncate max-w-[8rem] text-red-400 text-right">
-                            {receiver?.uid || "???"}
-                          </span>
-                        </div>
-                        <div className="text-center mt-2 text-white text-sm font-semibold">
-                          {amount} sato
+
+                        {/* 送金フロー */}
+                        <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
+                          <div className="flex items-center justify-between">
+                            {/* From */}
+                            <div className="flex flex-col items-center">
+                              <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center mb-2">
+                                <span className="material-symbols-outlined text-white text-sm">
+                                  account_circle
+                                </span>
+                              </div>
+                              <span className="text-xs text-gray-400 mb-1">
+                                From
+                              </span>
+                              <span className="text-sm font-medium text-green-300 truncate max-w-[6rem]">
+                                {sender?.uid || "Unknown"}
+                              </span>
+                            </div>
+                            {/* → & Amount */}
+                            <div className="flex flex-col items-center mx-6">
+                              <span className="material-symbols-outlined text-blue-400 text-lg">
+                                arrow_forward
+                              </span>
+                              <div className="mt-2 bg-yellow-600/20 border border-yellow-500 rounded-lg px-3 py-1">
+                                <span className="text-yellow-300 font-bold">
+                                  {amount}{" "}
+                                  <span className="text-xs opacity-80">
+                                    sato
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                            {/* To */}
+                            <div className="flex flex-col items-center">
+                              <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center mb-2">
+                                <span className="material-symbols-outlined text-white text-sm">
+                                  account_circle
+                                </span>
+                              </div>
+                              <span className="text-xs text-gray-400 mb-1">
+                                To
+                              </span>
+                              <span className="text-sm font-medium text-red-300 truncate max-w-[6rem]">
+                                {receiver?.uid || "Unknown"}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     );
                   }
 
-                  // PON: 勝ち負け形式
+                  // PON ケース
                   return (
                     <div
                       key={rec.round_id}
-                      className="bg-gray-800/60 border border-gray-700 rounded-lg p-4"
+                      className="mx-auto max-w-2xl bg-gray-900/80 border border-gray-700 rounded-2xl p-6"
                     >
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-mono text-blue-300">
-                          {rec.round_id}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {new Date(rec.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        {rec.points.map((p: any) => (
-                          <div
-                            key={p.uid}
-                            className="flex justify-between text-gray-300"
-                          >
-                            <span className="truncate max-w-[8rem]">
-                              {p.uid}
-                            </span>
-                            <span
-                              className={
-                                p.value > 0
-                                  ? "text-green-400 font-semibold"
-                                  : "text-red-400 font-semibold"
-                              }
-                            >
-                              {p.value > 0 ? "+" : ""}
-                              {p.value}pt
+                      {/* ヘッダー */}
+                      <div className="flex justify-between items-center mb-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white text-sm">
+                              emoji_events
                             </span>
                           </div>
-                        ))}
+                          <span className="text-sm font-mono text-purple-300 font-semibold">
+                            {rec.round_id}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="bg-gray-800/60 px-2 py-1 rounded-lg flex items-center gap-1">
+                            <span className="material-symbols-outlined text-gray-400 text-xs">
+                              group
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {rec.points.length}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-lg">
+                            {new Date(rec.created_at).toLocaleString("ja-JP", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 結果リスト */}
+                      <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
+                        <div className="grid gap-3">
+                          {rec.points
+                            .sort((a: any, b: any) => b.value - a.value)
+                            .map((p: any, idx: number) => (
+                              <div
+                                key={p.uid}
+                                className={`flex justify-between items-center px-3 py-2 rounded-lg ${
+                                  idx === 0
+                                    ? "bg-yellow-500/15 border-yellow-400/30 border"
+                                    : p.value > 0
+                                      ? "bg-green-500/10 border-green-500/20 border"
+                                      : p.value < 0
+                                        ? "bg-red-500/10 border-red-500/20 border"
+                                        : "bg-gray-700/30 border-gray-600/20 border"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {idx === 0 && (
+                                    <span className="material-symbols-outlined text-yellow-400 text-sm">
+                                      trophy
+                                    </span>
+                                  )}
+                                  <span className="truncate max-w-[8rem] font-medium">
+                                    {p.uid}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span
+                                    className={`font-bold tabular-nums ${
+                                      p.value > 0
+                                        ? "text-green-400"
+                                        : p.value < 0
+                                          ? "text-red-400"
+                                          : "text-gray-400"
+                                    }`}
+                                  >
+                                    {p.value > 0 ? "+" : ""}
+                                    {p.value}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    pt
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
                       </div>
                     </div>
                   );
@@ -795,133 +962,242 @@ export default function RoomPage() {
       )}
       {/* 精算モーダル */}
       {showSettleModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md">
-            <h2 className="text-white text-2xl font-semibold mb-4">SATO</h2>
+        <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-purple-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
+          <div className="w-full max-w-md bg-gradient-to-br from-gray-900/90 via-gray-800/80 to-gray-900/90 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
+            {/* 背景装飾 */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-purple-400/10 to-transparent rounded-full blur-2xl"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-blue-500/10 to-transparent rounded-full blur-xl"></div>
 
-            {/* 送金可能な相手だけをリスト */}
-            <div className="flex flex-wrap gap-4 mb-4">
-              {/*
-          自分の残高がマイナスかつ相手の残高がプラスのときのみ表示
-        */}
-              {room.members
-                .filter((m: any) => {
+            <div className="relative z-10">
+              <div className="flex justify-between items-center mb-6">
+                {/* タイトル＋アイコン */}
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                    <span className="material-symbols-outlined text-white text-xl">
+                      payments
+                    </span>
+                  </div>
+                  <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent tracking-wide">
+                    SATO
+                  </h2>
+                </div>
+
+                {/* 閉じるボタン */}
+                <button
+                  onClick={() => setShowSettleModal(false)}
+                  className="w-10 h-10 flex items-center justify-center hover:bg-gray-700/60 rounded-xl transition-all duration-200 hover:scale-105 group"
+                >
+                  <span className="material-symbols-outlined text-gray-400 group-hover:text-white text-lg transition-colors">
+                    close
+                  </span>
+                </button>
+              </div>
+
+              {/* 現在の残高表示 */}
+              <div className="bg-gradient-to-r from-gray-800/60 to-gray-900/60 rounded-2xl p-4 mb-6 border border-gray-600/30">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-300 font-medium">
+                    Your Balance
+                  </span>
+                  <span
+                    className={`font-bold text-lg tabular-nums ${
+                      myBalance >= 0 ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    {myBalance >= 0 ? "+" : ""}
+                    {myBalance.toLocaleString()}
+                    <span className="text-sm opacity-80 ml-1">sato</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* 送金可能な相手だけをリスト */}
+              <div className="mb-6">
+                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-purple-400">
+                    person_search
+                  </span>
+                  Select Recipient
+                </h3>
+
+                {room.members.filter((m: any) => {
                   if (m.uid === me.uid) return false;
                   const theirBal = balances[m.uid] || 0;
-                  // 自分の残高がマイナスで、相手に支払う余地がある場合
                   return myBalance < 0 && theirBal > 0;
-                })
-                .map((m: any) => {
-                  // この相手へ送れる上限
-                  const maxPay = Math.min(-myBalance, balances[m.uid]);
-                  const isSel = settleInput.to_uid === m.uid;
-                  return (
-                    <button
-                      key={m.uid}
-                      onClick={
-                        () => setSettleInput({ to_uid: m.uid, amount: 0 }) // maxPay を初期セットしない
-                      }
-                      className={`flex flex-col items-center justify-center w-16 h-16 rounded-full border-2 ${
-                        isSel
-                          ? "border-purple-400 bg-purple-600"
-                          : "border-gray-600 bg-gray-700"
-                      } hover:scale-105 transition`}
-                    >
-                      {/* 大きなアイコン */}
-                      <span className="text-2xl font-bold">
-                        {m.uid.charAt(0)}
-                      </span>
-                      {/* この相手へ送れる最大額 */}
-                      <span className="text-xs text-gray-200 mt-1">
-                        {maxPay.toLocaleString()}
-                      </span>
-                    </button>
-                  );
-                })}
-            </div>
-            {/*
-        送金可能相手がいなければ案内文
-      */}
-            {room.members
-              .filter((m: any) => m.uid !== me.uid)
-              .every(
-                (m: any) => !(myBalance < 0 && (balances[m.uid] || 0) > 0),
-              ) && (
-              <p className="text-gray-400 mb-4">送金可能な相手がいません。</p>
-            )}
+                }).length > 0 ? (
+                  <div className="grid grid-cols-3 gap-3">
+                    {room.members
+                      .filter((m: any) => {
+                        if (m.uid === me.uid) return false;
+                        const theirBal = balances[m.uid] || 0;
+                        return myBalance < 0 && theirBal > 0;
+                      })
+                      .map((m: any) => {
+                        const maxPay = Math.min(-myBalance, balances[m.uid]);
+                        const isSel = settleInput.to_uid === m.uid;
+                        return (
+                          <button
+                            key={m.uid}
+                            onClick={() =>
+                              setSettleInput({ to_uid: m.uid, amount: 0 })
+                            }
+                            className={`relative flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-300 transform hover:scale-105 group ${
+                              isSel
+                                ? "border-purple-400/60 bg-gradient-to-br from-purple-600/20 to-indigo-600/20 shadow-lg shadow-purple-500/20"
+                                : "border-gray-600/40 bg-gradient-to-br from-gray-700/40 to-gray-800/40 hover:border-purple-400/40"
+                            }`}
+                          >
+                            {isSel && (
+                              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-2xl animate-pulse"></div>
+                            )}
 
-            {/* 金額入力＆送信 */}
-            <div className="flex flex-col gap-2">
-              {(() => {
-                // 選択中の相手へ送れる上限
-                const maxPay = settleInput.to_uid
-                  ? Math.min(-myBalance, balances[settleInput.to_uid] || 0)
-                  : 0;
-                const isValid =
-                  settleInput.to_uid !== "" &&
-                  settleInput.amount >= 1 &&
-                  settleInput.amount <= maxPay;
+                            <div
+                              className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 transition-all ${
+                                isSel
+                                  ? "bg-gradient-to-r from-purple-500 to-indigo-500 shadow-lg"
+                                  : "bg-gradient-to-r from-gray-600 to-gray-700 group-hover:from-purple-500/50 group-hover:to-indigo-500/50"
+                              }`}
+                            >
+                              <span className="text-white font-bold text-lg">
+                                {m.uid.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
 
-                return (
-                  <>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={amountInput}
-                      onChange={(e) => {
-                        let raw = e.target.value;
-                        raw = raw.replace(/[０-９]/g, (s) =>
-                          String.fromCharCode(s.charCodeAt(0) - 65248),
+                            <span
+                              className={`text-xs font-medium truncate max-w-full ${
+                                isSel ? "text-purple-300" : "text-gray-300"
+                              }`}
+                            >
+                              {m.uid}
+                            </span>
+
+                            <div
+                              className={`text-xs mt-1 px-2 py-0.5 rounded-full ${
+                                isSel
+                                  ? "bg-purple-500/20 text-purple-300"
+                                  : "bg-gray-600/40 text-gray-400"
+                              }`}
+                            >
+                              Max: {maxPay.toLocaleString()}
+                            </div>
+                          </button>
                         );
-                        if (!/^\d*$/.test(raw)) return;
+                      })}
+                  </div>
+                ) : (
+                  <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-2xl p-4 flex items-center gap-3">
+                    <div className="w-8 h-8 bg-orange-500/20 rounded-full flex items-center justify-center">
+                      <span className="material-symbols-outlined text-orange-400 text-sm">
+                        info
+                      </span>
+                    </div>
+                    <p className="text-orange-300 font-medium">
+                      No recipients available for Sato
+                    </p>
+                  </div>
+                )}
+              </div>
 
-                        const cleaned = raw.replace(/^0+(?=\d)/, "");
+              {/* 金額入力＆送信 */}
+              {settleInput.to_uid && (
+                <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-5 border border-gray-600/30">
+                  <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-green-400">
+                      paid
+                    </span>
+                    Enter Amount
+                  </h3>
 
-                        setAmountInput(cleaned);
-                        setSettleInput((s) => ({
-                          ...s,
-                          amount: Number(cleaned || "0"),
-                        }));
-                      }}
-                      placeholder="SATO"
-                      className="w-full p-2 bg-gray-700 rounded text-center text-white"
-                    />
-                    {/* 範囲外エラー */}
-                    {!isValid && settleInput.to_uid && (
-                      <p className="text-red-400 text-sm text-center">
-                        1 - {maxPay.toLocaleString()}
-                      </p>
-                    )}
-                    <button
-                      onClick={async () => {
-                        if (!isValid) return;
-                        await api.requestSettlement(
-                          token!,
-                          roomId!,
-                          settleInput.to_uid,
-                          settleInput.amount,
-                        );
-                        setSettleInput({ to_uid: "", amount: 0 });
-                        setShowSettleModal(false);
-                      }}
-                      disabled={!isValid}
-                      className={`w-full py-2 rounded text-white font-semibold transition ${
-                        isValid
-                          ? "bg-purple-600 hover:bg-purple-500"
-                          : "bg-purple-600/30 cursor-not-allowed"
-                      }`}
-                    >
-                      Sato
-                    </button>
-                  </>
-                );
-              })()}
+                  {(() => {
+                    const maxPay = Math.min(
+                      -myBalance,
+                      balances[settleInput.to_uid] || 0,
+                    );
+                    const isValid =
+                      settleInput.amount >= 1 && settleInput.amount <= maxPay;
+
+                    return (
+                      <div className="space-y-4">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={amountInput}
+                            onChange={(e) => {
+                              let raw = e.target.value;
+                              raw = raw.replace(/[０-９]/g, (s) =>
+                                String.fromCharCode(s.charCodeAt(0) - 65248),
+                              );
+                              if (!/^\d*$/.test(raw)) return;
+
+                              const cleaned = raw.replace(/^0+(?=\d)/, "");
+
+                              setAmountInput(cleaned);
+                              setSettleInput((s) => ({
+                                ...s,
+                                amount: Number(cleaned || "0"),
+                              }));
+                            }}
+                            placeholder="Enter amount..."
+                            className="w-full px-4 py-4 bg-gray-900/60 border border-gray-600/50 text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all duration-200 placeholder-gray-400 text-center text-xl font-semibold"
+                          />
+                          <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm">
+                            sato
+                          </div>
+                        </div>
+
+                        {!isValid && settleInput.amount > 0 && (
+                          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-red-400 text-sm">
+                              error
+                            </span>
+                            <p className="text-red-300 text-sm">
+                              Amount must be between 1 -{" "}
+                              {maxPay.toLocaleString()} sato
+                            </p>
+                          </div>
+                        )}
+
+                        <button
+                          onClick={async () => {
+                            if (!isValid) return;
+                            await api.requestSettlement(
+                              token!,
+                              roomId!,
+                              settleInput.to_uid,
+                              settleInput.amount,
+                            );
+                            setSettleInput({ to_uid: "", amount: 0 });
+                            setAmountInput("");
+                            setShowSettleModal(false);
+                          }}
+                          disabled={!isValid}
+                          className={`w-full py-4 rounded-2xl font-semibold transition-all duration-300 transform relative overflow-hidden group ${
+                            isValid
+                              ? "bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-500 hover:via-indigo-500 hover:to-purple-600 text-white shadow-xl hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98]"
+                              : "bg-gradient-to-r from-gray-700/50 to-gray-600/50 text-gray-400 cursor-not-allowed"
+                          }`}
+                        >
+                          {isValid && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                          )}
+                          <span className="relative flex items-center justify-center gap-2">
+                            <span className="material-symbols-outlined">
+                              send_money
+                            </span>
+                            Sato Request
+                          </span>
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
-
       {/* メンバーディテールモーダル */}
       {selectedMember && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -999,81 +1275,180 @@ export default function RoomPage() {
 
       {/* ————— 参加申請モーダル ————— */}
       {joinReq && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 p-6 rounded-xl">
-            <p className="text-white mb-4">
-              {joinReq.from_uid} さんが参加を申請しています。
-            </p>
-            <div className="flex gap-4">
-              <button
-                onClick={async () => {
-                  try {
-                    await api.approveMember(token!, roomId!, joinReq.from_uid);
-                  } catch (e) {
-                    console.error("承認に失敗:", e);
-                    alert("承認に失敗しました");
-                  } finally {
-                    setJoinReq(null);
-                  }
-                }}
-                className="px-4 py-2 bg-green-600 rounded"
-              >
-                承認
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await api.rejectMember(token!, roomId!, joinReq.from_uid);
-                  } catch (e) {
-                    console.error("Reject failed:", e);
-                  } finally {
-                    setJoinReq(null); // 成功・失敗に関係なく閉じる
-                  }
-                }}
-                className="px-4 py-2 bg-red-600 rounded"
-              >
-                拒否
-              </button>
+        <div className="fixed inset-0 bg-gradient-to-br from-black/70 via-black/60 to-blue-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
+          <div className="w-full max-w-md bg-gradient-to-br from-gray-900/95 via-gray-800/85 to-gray-900/95 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
+            {/* 装飾 */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-400/10 to-transparent rounded-full blur-2xl"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-green-500/10 to-transparent rounded-full blur-xl"></div>
+
+            <div className="relative z-10">
+              {/* ヘッダー */}
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                  <span className="material-symbols-outlined text-white text-2xl">
+                    person_add
+                  </span>
+                </div>
+                <h2 className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                  Join Request
+                </h2>
+              </div>
+
+              {/* ユーザー情報 */}
+              <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30 text-center">
+                <p className="text-gray-400 text-sm mb-2">User</p>
+                <p className="text-white font-bold text-lg">
+                  {joinReq.from_uid}
+                </p>
+              </div>
+
+              {/* アクションボタン */}
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.rejectMember(token!, roomId!, joinReq.from_uid);
+                    } catch (e) {
+                      console.error("拒否に失敗:", e);
+                    } finally {
+                      setJoinReq(null);
+                    }
+                  }}
+                  className="flex-1 py-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl relative overflow-hidden group"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  <span className="relative flex items-center justify-center gap-2">
+                    <span className="material-symbols-outlined">block</span>
+                    Reject
+                  </span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.approveMember(
+                        token!,
+                        roomId!,
+                        joinReq.from_uid,
+                      );
+                    } catch (e) {
+                      console.error("承認に失敗:", e);
+                      alert("承認に失敗しました");
+                    } finally {
+                      setJoinReq(null);
+                    }
+                  }}
+                  className="flex-1 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl relative overflow-hidden group"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  <span className="relative flex items-center justify-center gap-2">
+                    <span className="material-symbols-outlined">
+                      check_circle
+                    </span>
+                    Approve
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
       {/* 精算リクエスト承認モーダル */}
       {pendingReq && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-gray-800 p-6 rounded-xl">
-            <p className="text-white mb-4">
-              {pendingReq.from_uid} さんから{" "}
-              <span className="text-yellow-400">{pendingReq.amount} 円</span>{" "}
-              の精算リクエスト
-            </p>
-            <div className="flex gap-4">
-              <button
-                onClick={async () => {
-                  await api.approveSettlementRequest(
-                    token!,
-                    roomId!,
-                    pendingReq.from_uid,
-                  );
-                  setPendingReq(null);
-                }}
-                className="px-4 py-2 bg-green-600 rounded"
-              >
-                承認
-              </button>
-              <button
-                onClick={async () => {
-                  await api.rejectSettlementRequest(
-                    token!,
-                    roomId!,
-                    pendingReq.from_uid,
-                  );
-                  setPendingReq(null);
-                }}
-                className="px-4 py-2 bg-red-600 rounded"
-              >
-                拒否
-              </button>
+        <div className="fixed inset-0 bg-gradient-to-br from-black/70 via-black/60 to-blue-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
+          <div className="w-full max-w-md bg-gradient-to-br from-gray-900/95 via-gray-800/85 to-gray-900/95 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
+            {/* 背景装飾 */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-400/10 to-transparent rounded-full blur-2xl"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-green-500/10 to-transparent rounded-full blur-xl"></div>
+
+            <div className="relative z-10">
+              {/* ヘッダー */}
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                  <span className="material-symbols-outlined text-white text-2xl">
+                    request_quote
+                  </span>
+                </div>
+                <h2 className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                  Sato Request
+                </h2>
+              </div>
+
+              {/* リクエスト詳細 */}
+              <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center shadow-lg">
+                    <span className="text-white font-bold text-lg">
+                      {pendingReq.from_uid.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-white font-semibold">
+                      {pendingReq.from_uid}
+                    </p>
+                    <p className="text-gray-400 text-sm">wants to sato</p>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-400/30 rounded-xl p-4 text-center">
+                  <p className="text-yellow-300 font-bold text-2xl">
+                    {pendingReq.amount.toLocaleString()}
+                    <span className="text-base opacity-80 ml-1">sato</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* アクションボタン */}
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    await api.rejectSettlementRequest(
+                      token!,
+                      roomId!,
+                      pendingReq.from_uid,
+                    );
+                    setPendingReq(null);
+                  }}
+                  className="flex-1 py-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl relative overflow-hidden group"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  <span className="relative flex items-center justify-center gap-2">
+                    <span className="material-symbols-outlined">block</span>
+                    Decline
+                  </span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    await api.approveSettlementRequest(
+                      token!,
+                      roomId!,
+                      pendingReq.from_uid,
+                    );
+                    setPendingReq(null);
+                  }}
+                  className="flex-1 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl relative overflow-hidden group"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  <span className="relative flex items-center justify-center gap-2">
+                    <span className="material-symbols-outlined">
+                      check_circle
+                    </span>
+                    Approve
+                  </span>
+                </button>
+              </div>
+
+              {/* 注意事項 */}
+              <div className="mt-4 bg-blue-500/10 border border-blue-500/30 rounded-xl p-3 flex items-start gap-2">
+                <span className="material-symbols-outlined text-blue-400 text-sm mt-0.5">
+                  info
+                </span>
+                <p className="text-blue-300 text-xs">
+                  Approving will transfer {pendingReq.amount.toLocaleString()}{" "}
+                  sato from your balance to {pendingReq.from_uid}
+                </p>
+              </div>
             </div>
           </div>
         </div>
