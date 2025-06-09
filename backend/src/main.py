@@ -8,13 +8,14 @@ import os
 from src import ws
 
 
+      #allow_origins=["http://localhost","http://localhost:3000"],
 # FastAPI app設定など
 app = FastAPI()
 
 # CORS
 app.add_middleware(
       CORSMiddleware,
-      allow_origins=["http://localhost","http://localhost:3000"],
+      allow_origins=["*"],
       allow_credentials=True,
       allow_methods=["*"],
       allow_headers=["*"],

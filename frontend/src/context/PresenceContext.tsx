@@ -55,7 +55,7 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
   useEffect(() => {
     if (!token) return;
     const ws = new WebSocket(
-      `${process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws"}?token=${token}`,
+      `${process.env.NEXT_PUBLIC_WS_URL || "ws://10.225.246.225:8000/ws"}?token=${token}`,
     );
     wsRef.current = ws;
 
