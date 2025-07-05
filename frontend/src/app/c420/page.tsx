@@ -29,6 +29,8 @@ export default function DashboardPage() {
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showPointHistoryModal, setShowPointHistoryModal] = useState(false); 
+const [userPointHistory, setUserPointHistory] = useState<any[]>([]);       
   const [roomModalTab, setRoomModalTab] = useState<
   "joined" | "created" | "all"
   >("joined");
@@ -42,6 +44,17 @@ const [initializing, setInitializing] = useState(true);
   } = usePresence();
 
 
+useEffect(() => {
+  if (token) {
+    api.getUserPointHistory(token)
+      .then(history => {
+        console.log("User Point History:", history);
+      })
+      .catch(error => {
+        console.error("Failed to fetch user point history:", error);
+      });
+  }
+}, [token]); // token が変更された時にこの処理が実行されます
   // New logic to handle Firebase auth state and user setup
  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -169,41 +182,54 @@ if (initializing) {
         className={`relative backdrop-blur-lg bg-gray-900/60 border-b border-gray-700/40 ${styles.headerBackground}`}
         >
         <div className="max-w-7xl  mx-auto px-6 py-4">
-        <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-        <div>
-        <h1 className="text-xl font-bold text-white bg-clip-text text-transparent">
+<div className="flex justify-between items-center">
+  {/* 左側: SATOPON ロゴと status */}
+  <div className="flex items-center space-x-4">
+    <Link href="https://sites.google.com/view/jsato/" target="_blank" rel="noopener noreferrer">
+      <h1 className="text-xl font-bold text-white bg-clip-text text-transparent cursor-pointer hover:underline">
         SATOPON
-        </h1>
-        {!wsReady && (
-          <p className="text-xs text-yellow-400 animate-pulse">
-          Connecting…
-          </p>
-        )}
-        </div>
-        </div>
+      </h1>
+    </Link>
+    {!wsReady && (
+      <p className="text-xs text-yellow-400 animate-pulse">Connecting…</p>
+    )}
+  </div>
 
-        {/* Profile Avatar */}
-        <div className="relative">
-        <button
+  {/* 右側: GitHub + Avatar */}
+  <div className="flex items-center space-x-4">
+    {/* GitHub */}
+    <Link
+      href="https://github.com/raimu38/satopon"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-gray-400 hover:text-white transition"
+      title="View source on GitHub"
+    >
+      <span className="material-symbols-outlined text-[24px]">code</span>
+    </Link>
+
+    {/* Avatar */}
+    <div className="relative">
+      <button
         onClick={() => setShowProfileModal(true)}
-        className="w-10 h-10 rounded-full   overflow-hidden border-2 border-gray-600 hover:border-gray-800 transition-all duration-700 "
-        >
+        className="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-600 hover:border-gray-800 transition-all duration-700"
+      >
         {me.icon_url ? (
           <img
-          src={me.icon_url}
-          alt={me.display_name}
-          className="w-full h-full object-cover"
+            src={me.icon_url}
+            alt={me.display_name}
+            className="w-full h-full object-cover"
           />
         ) : (
-        <div className="w-full h-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
-        {me.display_name?.charAt(0).toUpperCase()}
-        </div>
+          <div className="w-full h-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
+            {me.display_name?.charAt(0).toUpperCase()}
+          </div>
         )}
-        </button>
-        </div>
-        </div>
-        </div>
+      </button>
+    </div>
+  </div>
+</div>
+</div>
         </header>
 
         {/* Main Content */}
@@ -255,12 +281,13 @@ if (initializing) {
 
         {/* Room Modal */}
         {showRoomModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center ">
-          <div className="w-full h-screen bg-gray-800/5 flex justify-center  ">
-          <div className="max-w-3xl w-full h-full flex flex-col">
+<div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
+  <div className="w-full h-full max-w-full rounded-none overflow-hidden bg-gray-900/95 border border-gray-700/50 shadow-2xl
+                  sm:rounded-2xl sm:max-w-[95%] sm:h-[95vh] lg:max-w-4xl lg:h-[90vh]">
+          <div className="max-w-4xl w-full h-full flex flex-col">
           <div className="p-6 border-b border-gray-600">
           <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-white">SATORU</h2>
+          <h2 className="text-2xl font-bold text-white">SATOPON</h2>
           <button
           onClick={() => setShowRoomModal(false)}
           className="w-8 h-8 hover:bg-gray-800/90 rounded-full flex items-center justify-center transition-colors"
@@ -511,173 +538,174 @@ if (initializing) {
           </div>
         )}
 
-        {showProfileModal && (
-          <div className="fixed inset-0 bg-black/20  w-full h-screen flex items-center justify-center z-50 ">
-          <div className=" w-full  h-full  backdrop-blur-md">
-          <div className="p-6">
-          {/* 閉じるボタン */}
-          <div className="flex justify-end mb-6">
-          <button
+{showProfileModal && (
+  <div className="fixed inset-0 bg-black/40 w-full h-screen flex items-center justify-center z-50 p-0 sm:p-6 lg:p-8">
+    <div className="relative w-full h-full sm:w-full sm:h-auto sm:max-w-2xl sm:max-h-[90vh] rounded-none sm:rounded-2xl bg-gradient-to-br from-gray-900 to-gray-800 backdrop-blur-xl shadow-2xl flex flex-col">
+      {/* Close Button */}
+      <div className="absolute top-4 right-4 z-10">
+        <button
           onClick={() => setShowProfileModal(false)}
-          className="w-8 h-8  hover:bg-gray-900 rounded-full flex items-center justify-center transition-colors"
+          className="w-10 h-10 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
           title="Close"
-          >
-          <span className="material-symbols-outlined text-white text-xl">
-          close
-          </span>
-          </button>
-          </div>
-
-          {/* アバターと名前編集 */}
-          <div className="text-center mb-8">
-          <div
-          onClick={() => setIsEditingName(true)}
-          className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 overflow-hidden border-4 border-gray-600 cursor-pointer hover:bg-gray-900/80 transition-colors duration-700"
-          title="Click to edit display name"
-          >
-          {me.icon_url ? (
-            <img
-            src={me.icon_url}
-            alt={me.display_name}
-            className="w-full h-full object-cover"
-            />
-          ) : (
-          <div className="w-full h-full flex items-center justify-center text-white font-bold text-3xl">
-          {me.display_name?.charAt(0).toUpperCase()}
-          </div>
-          )}
-          </div>
-
-          <div className="mx-auto max-w-4xl greid-col-3 p-4 rounded-xl bg-gradient-to-br from-gray-800/30 to-gray-600/20 backdrop-blur-md shadow-md">
-          {isEditingName ? (
-            <div className="space-y-2">
-            <input
-            type="text"
-            value={editedName}
-            onChange={(e) => setEditedName(e.target.value)}
-            maxLength={50}
-            className="w-full bg-gray-800/70 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors text-center"
-            />
-            <div className="flex justify-center space-x-4">
-            <button
-              onClick={async () => {
-                const trimmed = editedName.trim();
-               if (trimmed === me.display_name) {
-                  setIsEditingName(false);
-                  return;
-                }
-                if (!trimmed) {
-                 alert("表示名を入力してください");
-                  return;
-                }
-                await api.updateMe(token, { display_name: trimmed });
-                setMe({ ...me, display_name: trimmed });
-                setIsEditingName(false);
-              }}
-            className="text-green-400 hover:text-green-300 transition-colors"
-            title="Save"
-            >
-            <span className="material-symbols-outlined text-[28px]">
-            check
-            </span>
-            </button>
-            <button
-            onClick={() => {
-              setEditedName(me.display_name);
-              setIsEditingName(false);
-            }}
-            className="text-gray-400 hover:text-gray-200 transition-colors"
-            title="Cancel"
-            >
-            <span className="material-symbols-outlined text-[28px]">
+        >
+          <span className="material-symbols-outlined text-white text-2xl">
             close
-            </span>
-            </button>
-            </div>
-            </div>
-          ) : (
-          <>
-          <h3 className="text-xl font-semibold text-white">
-          {me.display_name}
-          </h3>
-          <p className="text-gray-400 text-sm">{me.email}</p>
-          </>
-          )}
-          </div>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 max-w-4xl mx-auto">
-          {/* Joined */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-blue-800/30 to-blue-600/20 border border-blue-500/20 backdrop-blur-md shadow-md">
-          <div className="flex items-center space-x-3">
-          <span className="material-symbols-outlined text-blue-300 text-2xl">
-          meeting_room
           </span>
-          <div>
-          <div className="text-xl font-semibold text-white">
-          {rooms.length}
-          </div>
-          <div className="text-sm text-blue-200">Joined Rooms</div>
-          </div>
-          </div>
-          </div>
+        </button>
+      </div>
 
-          {/* Created */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-green-800/30 to-emerald-600/20 border border-green-500/20 backdrop-blur-md shadow-md">
-          <div className="flex items-center space-x-3">
-          <span className="material-symbols-outlined text-green-300 text-2xl">
-          add_box
-          </span>
-          <div>
-          <div className="text-xl font-semibold text-white">
-          {myRooms.length}
-          </div>
-          <div className="text-sm text-green-200">
-          Created Rooms
-          </div>
-          </div>
-          </div>
-          </div>
-
-          {/* Active */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-purple-800/30 to-pink-600/20 border border-purple-500/20 backdrop-blur-md shadow-md">
-          <div className="flex items-center space-x-3">
-          <span className="material-symbols-outlined text-purple-300 text-2xl">
-          visibility
-          </span>
-          <div>
-          <div className="text-xl font-semibold text-white">
-          {Object.values(onlineUsers).reduce(
-            (s, u) => s + u.size,
-              0,
-          )}
-          </div>
-          <div className="text-sm text-purple-200">
-          Active Users
-          </div>
-          </div>
-          </div>
-          </div>
-          </div>
-
-          {/* Logout */}
-          <button
-          onClick={async () => {
-            await signOut(auth);
-            router.replace("/");
-          }}
-          className="w-full max-w-4xl mx-auto px-4 py-2 mt-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-200 hover:text-white text-sm font-medium transition-colors flex items-center justify-center space-x-2"
+      <div className="p-6 sm:p-8 lg:p-10 overflow-y-auto custom-scrollbar flex-grow">
+        {/* Avatar and Name Edit Section */}
+        <div className="text-center mb-8 pt-4">
+          <div
+            onClick={() => setIsEditingName(true)}
+            className="w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 overflow-hidden border-4 border-gray-600 cursor-pointer shadow-lg transform transition-all duration-300 hover:scale-105 hover:border-blue-400"
+            title="Click to edit display name"
           >
-          <span className="material-symbols-outlined text-[20px]">
-          logout
-          </span>
-          <span>Logout</span>
+            {me.icon_url ? (
+              <img
+                src={me.icon_url}
+                alt={me.display_name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-white font-bold text-4xl sm:text-5xl">
+                {me.display_name?.charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+
+          <div className="mx-auto max-w-md p-4 sm:p-6 rounded-xl bg-gray-800/60 shadow-xl border border-gray-700">
+            {isEditingName ? (
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  maxLength={50}
+                  className="w-full bg-gray-900/70 border border-gray-600 rounded-lg px-4 py-2 text-white text-center text-lg placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors duration-200"
+                  placeholder="Enter display name"
+                />
+                <div className="flex justify-center space-x-6">
+                  <button
+                    onClick={async () => {
+                      const trimmed = editedName.trim();
+                      if (trimmed === me.display_name) {
+                        setIsEditingName(false);
+                        return;
+                      }
+                      if (!trimmed) {
+                        alert("表示名を入力してください");
+                        return;
+                      }
+                      await api.updateMe(token, { display_name: trimmed });
+                      setMe({ ...me, display_name: trimmed });
+                      setIsEditingName(false);
+                    }}
+                    className="text-green-400 hover:text-green-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
+                    title="Save"
+                  >
+                    <span className="material-symbols-outlined text-[32px]">
+                      check_circle
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditedName(me.display_name);
+                      setIsEditingName(false);
+                    }}
+                    className="text-red-400 hover:text-red-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
+                    title="Cancel"
+                  >
+                    <span className="material-symbols-outlined text-[32px]">
+                      cancel
+                    </span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-xl sm:text-2xl font-bold text-white mb-1">
+                  {me.display_name}
+                </h3>
+                <p className="text-gray-400 text-sm sm:text-base">
+                  {me.email}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* --- */}
+        <hr className="border-gray-700 my-8" />
+
+        {/* Stats Section */}
+        <div className="grid grid-cols-3 gap-4 sm:gap-6 mb-8">
+          {/* Joined Rooms */}
+          <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-blue-900/40 to-blue-700/30 border border-blue-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
+            <span className="material-symbols-outlined text-blue-300 text-3xl sm:text-4xl mb-1">
+              meeting_room
+            </span>
+            <div className="text-xl sm:text-2xl font-bold text-white">
+              {rooms.length}
+            </div>
+            <div className="text-xs sm:text-sm text-blue-200">
+              Joined Rooms
+            </div>
+          </div>
+
+          {/* Created Rooms */}
+          <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-green-900/40 to-emerald-700/30 border border-green-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
+            <span className="material-symbols-outlined text-green-300 text-3xl sm:text-4xl mb-1">
+              add_box
+            </span>
+            <div className="text-xl sm:text-2xl font-bold text-white">
+              {myRooms.length}
+            </div>
+            <div className="text-xs sm:text-sm text-green-200">
+              Created Rooms
+            </div>
+          </div>
+
+          {/* Active Users */}
+          <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-purple-900/40 to-pink-700/30 border border-purple-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
+            <span className="material-symbols-outlined text-purple-300 text-3xl sm:text-4xl mb-1">
+              people
+            </span>
+            <div className="text-xl sm:text-2xl font-bold text-white">
+              {Object.values(onlineUsers).reduce(
+                (s, u) => s + u.size,
+                0,
+              )}
+            </div>
+            <div className="text-xs sm:text-sm text-purple-200">
+              Active Users
+            </div>
+          </div>
+        </div>
+
+        {/* --- */}
+        <hr className="border-gray-700 my-8" />
+
+        {/* Logout Button */}
+        <div className="flex justify-center">
+          <button
+            onClick={async () => {
+              await signOut(auth);
+              router.replace("/");
+            }}
+            className="w-full max-w-sm px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-200 hover:text-white text-lg font-medium transition-all duration-300 flex items-center justify-center space-x-3 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+          >
+            <span className="material-symbols-outlined text-[24px]">
+              logout
+            </span>
+            <span>Logout</span>
           </button>
-          </div>
-          </div>
-          </div>
-        )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
         {/* Footer.tsx */}
         <footer className="fixed bottom-0 inset-x-0 bg-gray-900/90 border-t border-gray-300/20 backdrop-blur-lg z-0">

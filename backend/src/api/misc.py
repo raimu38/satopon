@@ -111,12 +111,13 @@ async def approve_point_record(
 
 
 
+
 @router.get("/users/me/points/history")
 async def user_point_history(
     current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
+    service: PointService = Depends(get_point_service), # ここを修正
 ):
-    return await service.history_by_uid(current_uid)
+    return await service.point_repo.history_by_uid(current_uid) # ここを修正
 
 
 # ---- Settlement endpoints ----
