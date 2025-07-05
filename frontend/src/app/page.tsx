@@ -18,7 +18,7 @@ export default function AuthPage() {
       setIsAnimating(true);
       console.log("anima");
       animationTimer.current = setTimeout(() => {
-        router.replace("/c420"); // Use http://10.225.246.225/c420 if needed
+        router.replace("/c420");
       }, 2000);
       return;
     }

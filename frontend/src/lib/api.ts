@@ -1,6 +1,6 @@
 // src/lib/api.ts
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://10.225.246.225:8000/api";
+  process.env.NEXT_PUBLIC_API_BASE || "";
 
 type ApiOptions = {
   method?: string;
