@@ -231,10 +231,7 @@ class SettlementService:
             "is_deleted": False,
         })
 
-        # キャッシュ削除
         await self.cache.clear_request(room_id, from_uid, to_uid)
-
-        # 完了通知（ルーム全員へ）
         await broadcast_event_to_room(room_id, {
             "type": "settle_completed",
             "room_id": room_id,
@@ -246,14 +243,15 @@ class SettlementService:
         return round_id
 
     async def reject_request(self, room_id: str, from_uid: str, to_uid: str):
-        # キャッシュ削除
         await self.cache.clear_request(room_id, from_uid, to_uid)
-        # 拒否通知
-        await send_event(from_uid, {
+        payload = {
             "type": "settle_rejected",
             "room_id": room_id,
-            "by_uid": to_uid,
-        })
+            "from_uid": from_uid,
+            "to_uid": to_uid,
+        }
+        await send_event(from_uid, payload)
+        await broadcast_event_to_room(room_id, payload)
 
     async def history(self, room_id: str):
         return await self.settle_repo.history(room_id)

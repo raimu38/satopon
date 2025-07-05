@@ -34,7 +34,7 @@ export default function DashboardPage() {
   const [roomModalTab, setRoomModalTab] = useState<
   "joined" | "created" | "all"
   >("joined");
-
+const [initializing, setInitializing] = useState(true);
   const {
     wsReady,
     subscribePresence,
@@ -45,39 +45,45 @@ export default function DashboardPage() {
 
 
   // New logic to handle Firebase auth state and user setup
-  useEffect(() => {
+ useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
+      if (!user) {
+        router.replace("/");
+        return;
+      }
+      try {
         const idToken = await user.getIdToken();
         setToken(idToken);
 
+        // 既存ユーザー API 取得
         try {
           const appUser = await api.getMe(idToken);
           setMe(appUser);
-        } catch (error) {
-          try {
-            const newUser = await api.createUser(idToken, {
-              display_name: user.displayName || user.email!.split("@")[0],
-              email: user.email!,
-              icon_url: user.photoURL ?? "",
-            });
-            setMe(newUser);
-          } catch (creationError) {
-            console.error("Failed to create user:", creationError);
-          }
+        } catch {
+          // ユーザーが存在しなければ作成
+          const newUser = await api.createUser(idToken, {
+            display_name: user.displayName || user.email!.split("@")[0],
+            email: user.email!,
+            icon_url: user.photoURL ?? "",
+          });
+          setMe(newUser);
         }
-      } else {
-        // User is signed out.
-        setToken(null);
-        setMe(null);
-        router.replace("/");
+      } catch (err) {
+        console.error("ユーザー情報の取得・作成に失敗", err);
+      } finally {
+        // 認証まわりの初期化は一度だけ
+        setInitializing(false);
       }
     });
 
-    // Cleanup subscription on unmount
     return () => unsubscribe();
   }, [router]);
-
+  useEffect(() => {
+    if (showProfileModal) {
+      setEditedName(me?.display_name || "");
+      setIsEditingName(false);
+    }
+  }, [showProfileModal, me?.display_name]);
   useEffect(() => {
     const off = onEvent((ev) => {
       switch (ev.type) {
@@ -85,6 +91,7 @@ export default function DashboardPage() {
           case "user_left":
           case "join_request":
           case "join_request_cancelled":
+          case "join_rejected":
           case "join_approved":
           setMsg((m) => m + "x");
         break;
@@ -137,6 +144,16 @@ export default function DashboardPage() {
     (r) => !rooms.some((x) => x.room_id === r.room_id),
   );
 
+if (initializing) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+        <p className="text-gray-400">Loading…</p>
+        </div>
+        </div>
+      );
+  }
     if (!token || !me)
       return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
@@ -548,17 +565,20 @@ export default function DashboardPage() {
             />
             <div className="flex justify-center space-x-4">
             <button
-            onClick={async () => {
-              if (!editedName.trim()) {
-                alert("表示名を入力してください");
-                return;
-              }
-              await api.updateMe(token, {
-                display_name: editedName.trim(),
-              });
-              setMe({ ...me, display_name: editedName.trim() });
-              setIsEditingName(false);
-            }}
+              onClick={async () => {
+                const trimmed = editedName.trim();
+               if (trimmed === me.display_name) {
+                  setIsEditingName(false);
+                  return;
+                }
+                if (!trimmed) {
+                 alert("表示名を入力してください");
+                  return;
+                }
+                await api.updateMe(token, { display_name: trimmed });
+                setMe({ ...me, display_name: trimmed });
+                setIsEditingName(false);
+              }}
             className="text-green-400 hover:text-green-300 transition-colors"
             title="Save"
             >
@@ -1368,8 +1388,7 @@ type PendingRequest =
       // メンバーのバランス
       const [balances, setBalances] = useState<Record<string, number>>({});
 
-      // 1. state 定義部に joinReq を追加
-      const [joinReq, setJoinReq] = useState<{ from_uid: string } | null>(null);
+const [joinQueue, setJoinQueue] = useState<string[]>([]);
       // ポイントラウンド用 state
       const [isRoundActive, setIsRoundActive] = useState(false);
       const [currentRoundId, setCurrentRoundId] = useState<string | null>(null);
@@ -1468,23 +1487,27 @@ type PendingRequest =
                                                    });
                                                  }, [token]);
                                                  // roomData & histories 初期取得
-                                                 useEffect(() => {
-                                                   if (!token || !roomId) return;
-                                                   (async () => {
-                                                     try {
-                                                       const [roomData, ph, sh] = await Promise.all([
-                                                         api.getRoom(token, roomId),
-                                                         api.getPointHistory(token, roomId),
-                                                         api.getSettlementHistory(token, roomId),
-                                                       ]);
-                                                       setRoom(roomData);
-                                                       setPointHistory(ph);
-                                                       setSettleHistory(sh);
-                                                     } catch {
-                                                       alert("データの取得に失敗しました。");
-                                                     }
-                                                   })();
-                                                 }, [token, roomId, msg]);
+
+useEffect(() => {
+  if (!token || !roomId) return;
+  (async () => {
+    try {
+      const [roomData, ph, sh] = await Promise.all([
+        api.getRoom(token, roomId),
+        api.getPointHistory(token, roomId),
+        api.getSettlementHistory(token, roomId),
+      ]);
+      setRoom(roomData);
+      // pending_members 全員分をキューに
+      const uids = roomData.pending_members?.map((m: any) => m.uid) || [];
+      setJoinQueue(uids);
+      setPointHistory(ph);
+      setSettleHistory(sh);
+    } catch {
+      alert("データの取得に失敗しました。");
+    }
+  })();
+}, [token, roomId, msg]);
 
                                                  // 入退室管理
                                                  useEffect(() => {
@@ -1527,22 +1550,15 @@ type PendingRequest =
                                                      switch (ev.type) {
                                                        // 参加申請
                                                        case "join_request":
-                                                         console.log("ev:", ev);
-                                                       setJoinReq({ from_uid: ev.applicant_uid });
+ setJoinQueue(q => [...q, ev.applicant_uid]);
                                                        break;
 
-                                                       // 申請が承認・拒否された場合はモーダルを閉じる
                                                        case "join_approved":
                                                          case "join_rejected":
-                                                         setJoinReq(null);
+setJoinQueue(q => q.filter(uid => uid !== ev.applicant_uid));
                                                        break;
-                                                       // ポイントラウンド
-                                                       // ラウンド開始通知
-                                                       // --- WebSocket イベントハンドラ内 ---
                                                        case "point_round_started":
-                                                         // alert("ポイントラウンドが開始されました！");
-                                                         // モーダルを開いて新しいラウンドの UI を表示
-                                                         setShowPointModal(true);
+                                                       setShowPointModal(true);
                                                        setIsRoundActive(true);
                                                        setCurrentRoundId(ev.round_id);
                                                        setSubmittedBy(new Set());
@@ -2715,86 +2731,98 @@ type PendingRequest =
           </div>
         </div>
       )}
-                                                       {/* ————— 参加申請モーダル ————— */}
-                                                       {joinReq && (
-                                                         <div className="fixed inset-0 bg-gradient-to-br from-black/70 via-black/60 to-blue-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
-                                                         <div className="w-full max-w-md bg-gradient-to-br from-gray-900/95 via-gray-800/85 to-gray-900/95 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
-                                                         {/* 装飾 */}
-                                                         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-400/10 to-transparent rounded-full blur-2xl"></div>
-                                                         <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-green-500/10 to-transparent rounded-full blur-xl"></div>
+{/* ————— 参加申請モーダル ————— */}
+{joinQueue.length > 0 && (
+  <div className="fixed inset-0 bg-gradient-to-br from-black/70 via-black/60 to-blue-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
+    <div className="w-full max-w-md bg-gradient-to-br from-gray-900/95 via-gray-800/85 to-gray-900/95 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
+      {/* 装飾 */}
+      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-400/10 to-transparent rounded-full blur-2xl"></div>
+      <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-green-500/10 to-transparent rounded-full blur-xl"></div>
 
-                                                         <div className="relative z-10">
-                                                         {/* ヘッダー */}
-                                                         <div className="text-center mb-6">
-                                                         <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-                                                         <span className="material-symbols-outlined text-white text-2xl">
-                                                         person_add
-                                                         </span>
-                                                         </div>
-                                                         <h2 className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-                                                         Join Request
-                                                         </h2>
-                                                         </div>
+      <div className="relative z-10">
+        {/* ヘッダー */}
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <span className="material-symbols-outlined text-white text-2xl">
+              person_add
+            </span>
+          </div>
+          <h2 className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+            Join Request
+          </h2>
+        </div>
 
-                                                         {/* ユーザー情報 */}
-                                                         <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30 text-center">
-                                                         <p className="text-gray-400 text-sm mb-2">User</p>
-                                                         <p className="text-white font-bold text-lg">
-                                                         {userMap[joinReq.from_uid]?.display_name || joinReq.from_uid}
-                                                         </p>
-                                                         </div>
+        {/* ユーザー情報 with Avatar */}
+        {(() => {
+          const from_uid = joinQueue[0];
+          const info = userMap[from_uid] || { display_name: from_uid, icon_url: undefined };
+          return (
+            <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30 text-center">
+              {info.icon_url ? (
+                <img
+                  src={info.icon_url}
+                  alt={info.display_name}
+                  className="w-16 h-16 rounded-full mx-auto mb-2 object-cover"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-full bg-gray-700 mx-auto mb-2 flex items-center justify-center text-white text-2xl">
+                  {info.display_name.charAt(0)}
+                </div>
+              )}
+              <p className="text-white font-bold text-lg">
+                {info.display_name}
+              </p>
+            </div>
+          );
+        })()}
 
-                                                         {/* アクションボタン */}
-                                                         <div className="flex gap-3">
-                                                         <button
-                                                         onClick={async () => {
-                                                           try {
-                                                             await api.rejectMember(token!, roomId!, joinReq.from_uid);
-                                                           } catch (e) {
-                                                             console.error("拒否に失敗:", e);
-                                                           } finally {
-                                                             setJoinReq(null);
-                                                           }
-                                                         }}
-                                                         className="flex-1 py-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl relative overflow-hidden group"
-                                                         >
-                                                         <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                                                         <span className="relative flex items-center justify-center gap-2">
-                                                         <span className="material-symbols-outlined">block</span>
-                                                         Reject
-                                                         </span>
-                                                         </button>
+        {/* アクションボタン */}
+        <div className="flex gap-3">
+          <button
+            onClick={async () => {
+              const from_uid = joinQueue[0];
+              try {
+                await api.rejectMember(token!, roomId!, from_uid);
+              } catch (e) {
+                console.error("拒否に失敗:", e);
+              } finally {
+                setJoinQueue(q => q.slice(1));
+              }
+            }}
+            className="flex-1 py-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl relative overflow-hidden group"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <span className="relative flex items-center justify-center gap-2">
+              <span className="material-symbols-outlined">block</span>
+              Reject
+            </span>
+          </button>
 
-                                                         <button
-                                                         onClick={async () => {
-                                                           try {
-                                                             await api.approveMember(
-                                                               token!,
-                                                               roomId!,
-                                                               joinReq.from_uid,
-                                                             );
-                                                           } catch (e) {
-                                                             console.error("承認に失敗:", e);
-                                                             alert("承認に失敗しました");
-                                                           } finally {
-                                                             setJoinReq(null);
-                                                           }
-                                                         }}
-                                                         className="flex-1 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl relative overflow-hidden group"
-                                                         >
-                                                         <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                                                         <span className="relative flex items-center justify-center gap-2">
-                                                         <span className="material-symbols-outlined">
-                                                         check_circle
-                                                         </span>
-                                                         Approve
-                                                         </span>
-                                                         </button>
-                                                         </div>
-                                                         </div>
-                                                         </div>
-                                                         </div>
-                                                       )}
+          <button
+            onClick={async () => {
+              const from_uid = joinQueue[0];
+              try {
+                await api.approveMember(token!, roomId!, from_uid);
+              } catch (e) {
+                console.error("承認に失敗:", e);
+                alert("承認に失敗しました");
+              } finally {
+                setJoinQueue(q => q.slice(1));
+              }
+            }}
+            className="flex-1 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl relative overflow-hidden group"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <span className="relative flex items-center justify-center gap-2">
+              <span className="material-symbols-outlined">check_circle</span>
+              Approve
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
                                                        {/* 精算リクエスト承認モーダル */}
                                                        {pendingReq && (
                                                          <div className="fixed inset-0 bg-gradient-to-br from-black/70 via-black/60 to-blue-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">

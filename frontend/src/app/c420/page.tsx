@@ -89,6 +89,7 @@ const [initializing, setInitializing] = useState(true);
           case "user_left":
           case "join_request":
           case "join_request_cancelled":
+          case "join_rejected":
           case "join_approved":
           setMsg((m) => m + "x");
         break;

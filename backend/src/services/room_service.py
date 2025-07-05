@@ -3,7 +3,7 @@ from src.repositories.misc_repo import PointRecordRepository
 from fastapi import HTTPException
 from datetime import datetime
 import uuid
-from src.ws import send_event
+from src.ws import send_event, broadcast_event_to_room 
 import random
 import string
 import asyncio
@@ -110,9 +110,6 @@ class RoomService:
         await self.room_repo.add_pending_member(room_id, applicant_uid)
         for member in room["members"]:
             await send_event(member["uid"], {"type": "join_request", "room_id": room_id, "applicant_uid": applicant_uid})
-        # タイマー管理...
-    
-            # タイマー管理
         key = f"{room_id}:{applicant_uid}"
         if key in self.pending_timers:
             self.pending_timers[key].cancel()
@@ -123,7 +120,6 @@ class RoomService:
     async def _auto_cancel_join_request(self, room_id, applicant_uid, key):
         try:
             await asyncio.sleep(30)
-            # まだpendingなら自動キャンセル
             room = await self.room_repo.get_by_id(room_id)
             if any(m["uid"] == applicant_uid for m in room.get("pending_members", [])):
                 await self.cancel_join_request(room_id, applicant_uid)
@@ -147,6 +143,11 @@ class RoomService:
         if not ok:
             raise HTTPException(status_code=400, detail="Already processed or not pending")
         await send_event(applicant_uid, {"type": "join_approved", "room_id": room_id})
+        await broadcast_event_to_room(room_id, {
+            "type": "join_approved",
+            "room_id": room_id,
+            "applicant_uid": applicant_uid,
+        })
         self._cancel_pending_timer(room_id, applicant_uid)
 
 
@@ -171,18 +172,19 @@ class RoomService:
         ok = await self.room_repo.remove_pending_member(room_id, applicant_uid)
         if not ok:
             raise HTTPException(status_code=400, detail="Already processed or not pending")
-        await send_event(applicant_uid, {
-            "type": "join_request_cancelled",
+        event_payload = {
+            "type": "join_rejected",
             "room_id": room_id,
-            "user_id": applicant_uid
-        })
+            "applicant_uid": applicant_uid
+        }
+        await broadcast_event_to_room(room_id, event_payload)
+        await send_event(applicant_uid, event_payload)
         self._cancel_pending_timer(room_id, applicant_uid)
     
     async def leave_room(self, room_id: str, uid: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
-        # 作成者自身の場合
         if room["created_by"] == uid:
             # 自分以外にメンバーがいるなら退会不可
             members = [m for m in room.get("members", []) if m["uid"] != uid]
@@ -191,7 +193,6 @@ class RoomService:
             # 作成者1人だけなら→退会＝削除で良い（バリデーションはdelete_roomのロジックでOK）
             await self.delete_room(room_id, uid)
             return True
-        # ポイント残高チェック
         balance = 0
         from collections import defaultdict
         point_histories = await self.point_repo.history(room_id)
