@@ -56,16 +56,6 @@ def get_settlement_service() -> SettlementService:
 
 # ---- Point endpoints ----
 
-@router.post("/rooms/{room_id}/points")
-async def add_points(
-    room_id: str,
-    data: PointRegisterRequest,
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
-):
-    # data.round_id, data.points, data.approved_by のまま渡す
-    await service.add_points(room_id, data.round_id, data.points, data.approved_by)
-    return {"ok": True}
 
 
 @router.get("/rooms/{room_id}/points/history")
@@ -76,15 +66,6 @@ async def point_history(
     return await service.history(room_id)
 
 
-@router.delete("/rooms/{room_id}/points/{round_id}")
-async def delete_point_record(
-    room_id: str,
-    round_id: str,
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
-):
-    await service.logical_delete(room_id, round_id, current_uid)
-    return {"ok": True}
 
 
 @router.post("/rooms/{room_id}/points/start")
@@ -115,14 +96,6 @@ async def finalize_point_round(
     return await service.finalize_round(room_id)
 
 
-@router.post("/rooms/{room_id}/points/cancel")
-async def cancel_point_round(
-    room_id: str,
-    reason: str,
-    service: PointService = Depends(get_point_service),
-):
-    await service.cancel_round(room_id, reason)
-    return {"ok": True}
 
 
 @router.post("/rooms/{room_id}/points/{round_id}/approve")
@@ -136,13 +109,6 @@ async def approve_point_record(
     return {"ok": True}
 
 
-@router.get("/rooms/{room_id}/points/{round_id}/status")
-async def point_approval_status(
-    room_id: str,
-    round_id: str,
-    service: PointService = Depends(get_point_service),
-):
-    return await service.get_approval_status(room_id, round_id)
 
 
 @router.get("/users/me/points/history")
@@ -154,21 +120,6 @@ async def user_point_history(
 
 
 # ---- Settlement endpoints ----
-
-@router.post("/rooms/{room_id}/settle")
-async def settle(
-    room_id: str,
-    data: SettlementCreate,
-    current_uid: str = Depends(get_current_uid),
-    service: SettlementService = Depends(get_settlement_service),
-):
-    await service.create({
-        "room_id": room_id,
-        "from_uid": current_uid,
-        "to_uid": data.to_uid,
-        "amount": data.amount,
-    })
-    return {"ok": True}
 
 
 @router.post("/rooms/{room_id}/settle/request")
@@ -212,10 +163,4 @@ async def settlement_history(
     return await service.history(room_id)
 
 
-@router.get("/users/me/settle/history")
-async def user_settle_history(
-    current_uid: str = Depends(get_current_uid),
-    service: SettlementService = Depends(get_settlement_service),
-):
-    return await service.history_by_uid(current_uid)
 

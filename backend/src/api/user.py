@@ -52,10 +52,3 @@ async def update_me(
     return {"ok": True}
 
 
-@router.delete("/users/me", response_model=dict)
-async def delete_me(
-    current_uid: str = Depends(get_current_uid),
-    service: UserService = Depends(get_user_service)
-):
-    await service.delete_user(current_uid)
-    return {"ok": True}

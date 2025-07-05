@@ -36,9 +36,9 @@ class RoomService:
             "description": data.get("description"),
             "color_id": data["color_id"],
             "created_by": uid,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(),
             "is_archived": False,
-            "members": [{"uid": uid, "joined_at": datetime.utcnow()}],
+            "members": [{"uid": uid, "joined_at": datetime.now()}],
             "pending_members": []
         }
         await self.room_repo.create(payload)

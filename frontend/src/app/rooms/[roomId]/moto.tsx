@@ -33,7 +33,6 @@ export default function RoomPage() {
     amount: number;
   } | null>(null);
   const [settleInput, setSettleInput] = useState({ to_uid: "", amount: 0 });
-  // presence は context で管理
   const {
     wsReady,
     enterRoom,
@@ -44,11 +43,8 @@ export default function RoomPage() {
     onEvent,
   } = usePresence();
 
-  // presence / point-round / 基本 fetch (省略)
-  // 5. WebSocket イベントで精算リクエストを受け取る
-  //    → me が取れてから登録するようにガードを追加
   useEffect(() => {
-    if (!me) return; // ← ここを追加
+    if (!me) return;
     const off = onEvent((ev) => {
       console.log("★WS イベント受信★", ev, "me.uid=", me.uid);
       if (ev.room_id !== roomId) return;
@@ -70,7 +66,6 @@ export default function RoomPage() {
     });
     return off;
   }, [onEvent, me, roomId]);
-  // 1. トークン＆ユーザー取得
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setToken(data.session?.access_token ?? null);
@@ -78,7 +73,7 @@ export default function RoomPage() {
   }, []);
 
   useEffect(() => {
-    if (!me) return; // ← me が null のときは何もしない
+    if (!me) return;
     const total = pointHistory.reduce((sum, rec) => {
       const entry = rec.points.find((p: any) => p.uid === me.uid);
       return sum + (entry?.value || 0);
@@ -93,7 +88,6 @@ export default function RoomPage() {
       .then(setMe)
       .catch(() => router.replace("/"));
   }, [token, router]);
-  // 3. roomData と history の初期取得だけ
   useEffect(() => {
     if (!token || !roomId) return;
     (async () => {
@@ -113,7 +107,6 @@ export default function RoomPage() {
     })();
   }, [token, roomId, msg]);
 
-  // 3. PresenceContext を使って入退室管理
   useEffect(() => {
     if (!wsReady || !roomId) return;
     enterRoom(roomId);
@@ -178,7 +171,7 @@ export default function RoomPage() {
             <span className="text-yellow-300 font-semibold">{myBalance}pt</span>
           </p>
         </div>
-        <Link href="/c402" className="text-blue-400 hover:underline">
+        <Link href="/c420" className="text-blue-400 hover:underline">
           ← ダッシュボードへ
         </Link>
       </header>
@@ -215,7 +208,7 @@ export default function RoomPage() {
           <button
             onClick={async () => {
               await api.leaveRoom(token, roomId);
-              router.replace("/c402");
+              router.replace("/c420");
             }}
             className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 rounded"
           >
@@ -223,7 +216,6 @@ export default function RoomPage() {
           </button>
         </section>
 
-        {/* 参加申請中メンバー承認/拒否 (オーナー用) */}
         {room.created_by === me.uid && room.pending_members.length > 0 && (
           <section className="bg-gray-800 p-4 rounded">
             <h2 className="font-semibold mb-2">参加申請中</h2>

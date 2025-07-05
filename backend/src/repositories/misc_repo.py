@@ -12,7 +12,7 @@ class PointRecordRepository:
         self.collection = db.point_records
 
     async def create(self, data: dict) -> str:
-        data.setdefault("created_at", datetime.utcnow())
+        data.setdefault("created_at", datetime.now())
         data.setdefault("is_deleted", False)
         await self.collection.insert_one(data)
         return data["round_id"]
@@ -27,50 +27,12 @@ class PointRecordRepository:
             item.pop("_id", None)
         return items
 
-    async def history_by_uid(self, uid: str) -> List[dict]:
-        cursor = self.collection.find(
-            {"points.uid": uid, "is_deleted": False}
-        )
-        items = await cursor.to_list(length=100)
-        for item in items:
-            item.pop("_id", None)
-        return items
-
-    async def find_one(self, room_id: str, round_id: str) -> Optional[dict]:
-        item = await self.collection.find_one({
-            "room_id": room_id,
-            "round_id": round_id,
-            "is_deleted": False,
-        })
-        if item:
-            item.pop("_id", None)
-        return item
-
-    async def logical_delete(self, room_id: str, round_id: str) -> bool:
-        result = await self.collection.update_one(
-            {"room_id": room_id, "round_id": round_id},
-            {"$set": {"is_deleted": True}}
-        )
-        return result.modified_count == 1
-
 
 class SettlementRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db.settlements
 
-    async def create(self, data: dict) -> str:
-        data.setdefault("created_at", datetime.utcnow())
-        data.setdefault("is_deleted", False)
-        data.setdefault("approved", False)
-        result = await self.collection.insert_one(data)
-        return str(result.inserted_id)
 
-    async def approve(self, settlement_id: str) -> bool:
-        result = await self.collection.update_one(
-            {"_id": ObjectId(settlement_id), "is_deleted": False},
-            {"$set": {"approved": True, "approved_at": datetime.utcnow()}}
-        )
-        return result.modified_count == 1
 
     async def history(self, room_id: str) -> List[dict]:
         cursor = self.collection.find(

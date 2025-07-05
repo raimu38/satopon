@@ -3,10 +3,11 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
 import * as api from "@/lib/api";
 import { usePresence } from "@/context/PresenceContext";
-import styles from "./RoomPage.module.css";
+import styles from "./RoomPage.module.css"
+import { auth } from "@/lib/firebaseClient";
+import { onAuthStateChanged } from "firebase/auth"
 
 type PendingRequest =
   | { type: "join"; from_uid: string }
@@ -73,15 +74,20 @@ export default function RoomPage() {
     onEvent,
   } = usePresence();
 
-  // RoomPage コンポーネントの中で
-  // 「自分以外にオンラインユーザーがいるか」を判定する
 
-  // supabase セッション取得
+
+  // Firebase ID token
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setToken(data.session?.access_token ?? null);
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const idToken = await user.getIdToken();
+        setToken(idToken);
+      } else {
+        router.replace("/");
+      }
     });
-  }, []);
+    return () => unsub();
+  }, [router]);
 // roomを取得したら編集欄にも反映
 useEffect(() => {
   setEditName(room?.name || "");
@@ -260,7 +266,7 @@ const handleUpdateRoom = async () => {
   const handleLeaveRoom = async () => {
     try {
       await api.leaveRoom(token, roomId);
-      router.replace("/c402");
+      router.replace("/c420");
     } catch (err: any) {
       setErrorMessage(err.message || "退出に失敗しました。");
     }
@@ -268,7 +274,7 @@ const handleUpdateRoom = async () => {
   const handleDeleteRoom = async () => {
     try {
       await api.deleteRoom(token, roomId);
-      router.replace("/c402");
+      router.replace("/c420");
     } catch (err: any) {
       setErrorMessage(err.message || "ルーム削除に失敗しました。");
     }
@@ -289,7 +295,7 @@ const handleUpdateRoom = async () => {
       {/* ヘッダー */}
       <header className="flex items-center justify-between px-8 py-4 backdrop-blur-lg bg-gray-900/70 border-b border-gray-700">
         <button
-          onClick={() => router.push("/c402")}
+          onClick={() => router.push("/c420")}
           className="p-2 rounded hover:bg-gray-800/50 transition"
         >
           <span className="material-symbols-outlined text-white text-2xl">

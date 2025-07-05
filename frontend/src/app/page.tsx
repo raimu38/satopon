@@ -1,10 +1,11 @@
-// page.tsx
-
 "use client";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 import { useRef, useState, useEffect } from "react";
 import AnimationSplash from "@/components/auth/AnimationSplash";
+
+// Import Firebase auth client and functions instead of Supabase
+import { auth } from "@/lib/firebaseClient";
+import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -12,36 +13,44 @@ export default function AuthPage() {
   const animationTimer = useRef<NodeJS.Timeout | null>(null);
 
   const handleStart = async () => {
-    const { data } = await supabase.auth.getUser();
-    if (data?.user) {
+    // Check if user is already signed in with Firebase
+    if (auth.currentUser) {
       setIsAnimating(true);
       console.log("anima");
       animationTimer.current = setTimeout(() => {
-        router.replace("http://10.225.246.225/c402");
+        router.replace("/c420"); // Use http://10.225.246.225/c420 if needed
       }, 2000);
       return;
     }
-    // 未認証ならGoogle認証フロー
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL,
-      },
-    });
-    if (error) alert("Google sign-in error: " + error.message);
+
+    // If not signed in, start Google sign-in flow with Firebase
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      // On success, trigger animation and redirect
+      setIsAnimating(true);
+      animationTimer.current = setTimeout(() => {
+        router.replace("/c420");
+      }, 2000);
+    } catch (error) {
+      alert("Google sign-in error: " + (error as Error).message);
+      console.error("Google sign-in error: ", error);
+    }
   };
 
-  // cleanup: ページ離脱時にタイマー破棄
+  // cleanup: clear timer on component unmount
   useEffect(() => {
     return () => {
-      if (animationTimer.current) clearTimeout(animationTimer.current);
+      if (animationTimer.current) {
+        clearTimeout(animationTimer.current);
+      }
     };
   }, []);
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
       {isAnimating && <AnimationSplash />}
-      {/* 左上アプリ名 */}
+      {/* App Name */}
       <div className="absolute top-0 left-0 p-4 z-10">
         <span className="text-white font-bold text-lg">satopon</span>
       </div>
@@ -60,7 +69,7 @@ export default function AuthPage() {
             transition
             text-lg
           "
-          disabled={isAnimating} // アニメ中は多重押し不可
+          disabled={isAnimating} // Disable button during animation
         >
           Get Started
         </button>

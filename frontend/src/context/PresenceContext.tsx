@@ -1,4 +1,3 @@
-// src/context/PresenceContext.tsx
 "use client";
 
 import React, {
@@ -11,7 +10,8 @@ import React, {
   PropsWithChildren,
 } from "react";
 import * as api from "@/lib/api";
-import { supabase } from "@/lib/supabaseClient";
+import { auth } from "@/lib/firebaseClient";
+import { onAuthStateChanged } from "firebase/auth";
 
 type Event =
   | { type: "user_entered"; room_id: string; uid: string }
@@ -21,9 +21,9 @@ type Event =
 interface PresenceContextValue {
   wsReady: boolean;
   onlineUsers: Record<string, Set<string>>;
-  subscribePresence: (room_id: string) => void; // ダッシュボード用
+  subscribePresence: (room_id: string) => void;
   unsubscribePresence: (room_id: string) => void;
-  enterRoom: (room_id: string) => void; // ルーム画面用
+  enterRoom: (room_id: string) => void;
   leaveRoom: (room_id: string) => void;
   onEvent: (listener: (ev: Event) => void) => () => void;
 }
@@ -32,38 +32,44 @@ const PresenceContext = createContext<PresenceContextValue | null>(null);
 
 export const PresenceProvider = ({ children }: PropsWithChildren) => {
   const wsRef = useRef<WebSocket | null>(null);
-
   const [token, setToken] = useState<string | null>(null);
   const [wsReady, setWsReady] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState<Record<string, Set<string>>>(
-    {},
-  );
-
-  const subscribedRooms = useRef<Set<string>>(new Set()); // 「見るだけ」
-  const enteredRooms = useRef<Set<string>>(new Set()); // 「実際に入室中」 ★追加
-
+  const [onlineUsers, setOnlineUsers] = useState<Record<string, Set<string>>>({});
+  const subscribedRooms = useRef<Set<string>>(new Set());
+  const enteredRooms = useRef<Set<string>>(new Set());
   const listeners = useRef<Set<(ev: Event) => void>>(new Set());
 
   /* ----------------------------- auth token ----------------------------- */
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setToken(data.session?.access_token ?? null);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const idToken = await user.getIdToken(true);
+        setToken(idToken);
+      } else {
+        setToken(null);
+      }
     });
+
+    return () => unsubscribe();
   }, []);
 
   /* ----------------------------- WebSocket ------------------------------ */
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      wsRef.current?.close();
+      setWsReady(false);
+      return;
+    }
+
     const ws = new WebSocket(
-      `${process.env.NEXT_PUBLIC_WS_URL || "ws://10.225.246.225:8000/ws"}?token=${token}`,
+      `${process.env.NEXT_PUBLIC_WS_URL || "ws://10.225.246.225:8000/ws"}?token=${token}`
     );
     wsRef.current = ws;
 
     ws.onopen = () => {
       setWsReady(true);
-      // 再接続時は「本当に入室している部屋」だけを再送信 ★修正
       enteredRooms.current.forEach((room_id) =>
-        ws.send(JSON.stringify({ type: "enter_room", room_id })),
+        ws.send(JSON.stringify({ type: "enter_room", room_id }))
       );
     };
 
@@ -75,7 +81,6 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
         return;
       }
 
-      /* -------- presence セットの更新 -------- */
       if (ev.type === "user_entered") {
         setOnlineUsers((prev) => {
           const next = { ...prev };
@@ -90,28 +95,29 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
         });
       }
 
-      /* -------- 登録済みリスナーへ配信 -------- */
       listeners.current.forEach((fn) => fn(ev));
     };
 
     ws.onclose = () => {
       setWsReady(false);
-      setTimeout(() => setToken(token), 3000); // 3秒後に再接続
     };
 
-    return () => ws.close();
+    return () => {
+      ws.onclose = null;
+      ws.close();
+    };
   }, [token]);
 
-  /* --------------------------- ダッシュボード --------------------------- */
+  /* --------------------------- dashboard --------------------------- */
   const subscribePresence = useCallback(
     (room_id: string) => {
-      if (subscribedRooms.current.has(room_id)) return;
-      subscribedRooms.current.add(room_id); // ★追加
-      api.getPresence(token!, room_id).then((list) => {
+      if (!token || subscribedRooms.current.has(room_id)) return;
+      subscribedRooms.current.add(room_id);
+      api.getPresence(token, room_id).then((list) => {
         setOnlineUsers((prev) => ({ ...prev, [room_id]: new Set(list) }));
       });
     },
-    [token],
+    [token]
   );
 
   const unsubscribePresence = useCallback((room_id: string) => {
@@ -123,20 +129,19 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
     });
   }, []);
 
-  /* ---------------------------- ルーム画面 ----------------------------- */
+  /* ---------------------------- room screen ----------------------------- */
   const enterRoom = useCallback(
     (room_id: string) => {
-      if (enteredRooms.current.has(room_id)) return; // 2重送信防止 ★追加
+      if (!token || enteredRooms.current.has(room_id)) return;
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "enter_room", room_id }));
       }
-      enteredRooms.current.add(room_id); // ★追加
-      // 最新 presence 取得
-      api.getPresence(token!, room_id).then((list) => {
+      enteredRooms.current.add(room_id);
+      api.getPresence(token, room_id).then((list) => {
         setOnlineUsers((prev) => ({ ...prev, [room_id]: new Set(list) }));
       });
     },
-    [token],
+    [token]
   );
 
   const leaveRoom = useCallback((room_id: string) => {
@@ -144,13 +149,8 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "leave_room", room_id }));
       }
-      enteredRooms.current.delete(room_id); // ★追加
+      enteredRooms.current.delete(room_id);
     }
-    setOnlineUsers((prev) => {
-      const next = { ...prev };
-      delete next[room_id];
-      return next;
-    });
   }, []);
 
   /* ------------------------------ API ------------------------------- */
@@ -181,3 +181,4 @@ export const usePresence = (): PresenceContextValue => {
   if (!ctx) throw new Error("usePresence must be used within PresenceProvider");
   return ctx;
 };
+

@@ -14,7 +14,7 @@ class UserRepository:
         return await self.collection.find_one({"external_id": external_id, "is_deleted": False})
 
     async def create(self, data: dict) -> str:
-        data["registered_at"] = datetime.utcnow()
+        data["registered_at"] = datetime.now()
         data["is_deleted"] = False
         await self.collection.insert_one(data)
         return data["uid"]
@@ -30,10 +30,4 @@ class UserRepository:
         cursor = self.collection.find({"is_deleted": False})
         return await cursor.to_list(length=1000)
 
-    async def logical_delete(self, uid: str) -> bool:
-        result = await self.collection.update_one(
-            {"uid": uid, "is_deleted": False},
-            {"$set": {"is_deleted": True}}
-        )
-        return result.modified_count == 1
 

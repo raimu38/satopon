@@ -11,7 +11,7 @@ class RoomRepository:
         return doc is not None
 
     async def create(self, data: dict) -> str:
-        data["created_at"] = datetime.utcnow()
+        data["created_at"] = datetime.now()
         data["is_archived"] = False
         await self.collection.insert_one(data)
         return data["room_id"]
@@ -39,12 +39,12 @@ class RoomRepository:
     async def add_member(self, room_id: str, uid: str):
         await self.collection.update_one(
             {"room_id": room_id, "is_archived": False, "members.uid": {"$ne": uid}},
-            {"$push": {"members": {"uid": uid, "joined_at": datetime.utcnow()}}}
+            {"$push": {"members": {"uid": uid, "joined_at": datetime.now()}}}
         )
     async def add_pending_member(self, room_id: str, uid: str):
         await self.collection.update_one(
             {"room_id": room_id, "is_archived": False},
-            {"$push": {"pending_members": {"uid": uid, "requested_at": datetime.utcnow()}}}
+            {"$push": {"pending_members": {"uid": uid, "requested_at": datetime.now()}}}
         )
 
     async def approve_pending_member(self, room_id: str, uid: str) -> bool:
@@ -56,7 +56,7 @@ class RoomRepository:
             },
             {
                 "$pull": {"pending_members": {"uid": uid}},
-                "$push": {"members": {"uid": uid, "joined_at": datetime.utcnow()}}
+                "$push": {"members": {"uid": uid, "joined_at": datetime.now()}}
             }
         )
         return result.modified_count == 1

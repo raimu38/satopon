@@ -146,7 +146,6 @@ export const submitPoint = (
 
 export const finalizePointRound = (token: string, room_id: string) =>
   api(`/rooms/${room_id}/points/finalize`, { method: "POST", token });
-// --- 精算 ---
 export const settle = (
   token: string,
   room_id: string,
@@ -188,7 +187,7 @@ export const approveSettlementRequest = (
   from_uid: string,
 ) =>
   api(
-    `/rooms/${room_id}/settle/request/${from_uid}/approve`, // ← here
+    `/rooms/${room_id}/settle/request/${from_uid}/approve`,
     { method: "POST", token },
   );
 
@@ -198,6 +197,6 @@ export const rejectSettlementRequest = (
   from_uid: string,
 ) =>
   api(
-    `/rooms/${room_id}/settle/request/${from_uid}/reject`, // ← and here
+    `/rooms/${room_id}/settle/request/${from_uid}/reject`,
     { method: "POST", token },
   );

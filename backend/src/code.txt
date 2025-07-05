@@ -66,16 +66,6 @@ def get_settlement_service() -> SettlementService:
 
 # ---- Point endpoints ----
 
-@router.post("/rooms/{room_id}/points")
-async def add_points(
-    room_id: str,
-    data: PointRegisterRequest,
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
-):
-    # data.round_id, data.points, data.approved_by のまま渡す
-    await service.add_points(room_id, data.round_id, data.points, data.approved_by)
-    return {"ok": True}
 
 
 @router.get("/rooms/{room_id}/points/history")
@@ -86,15 +76,6 @@ async def point_history(
     return await service.history(room_id)
 
 
-@router.delete("/rooms/{room_id}/points/{round_id}")
-async def delete_point_record(
-    room_id: str,
-    round_id: str,
-    current_uid: str = Depends(get_current_uid),
-    service: PointService = Depends(get_point_service),
-):
-    await service.logical_delete(room_id, round_id, current_uid)
-    return {"ok": True}
 
 
 @router.post("/rooms/{room_id}/points/start")
@@ -125,14 +106,6 @@ async def finalize_point_round(
     return await service.finalize_round(room_id)
 
 
-@router.post("/rooms/{room_id}/points/cancel")
-async def cancel_point_round(
-    room_id: str,
-    reason: str,
-    service: PointService = Depends(get_point_service),
-):
-    await service.cancel_round(room_id, reason)
-    return {"ok": True}
 
 
 @router.post("/rooms/{room_id}/points/{round_id}/approve")
@@ -146,13 +119,6 @@ async def approve_point_record(
     return {"ok": True}
 
 
-@router.get("/rooms/{room_id}/points/{round_id}/status")
-async def point_approval_status(
-    room_id: str,
-    round_id: str,
-    service: PointService = Depends(get_point_service),
-):
-    return await service.get_approval_status(room_id, round_id)
 
 
 @router.get("/users/me/points/history")
@@ -164,21 +130,6 @@ async def user_point_history(
 
 
 # ---- Settlement endpoints ----
-
-@router.post("/rooms/{room_id}/settle")
-async def settle(
-    room_id: str,
-    data: SettlementCreate,
-    current_uid: str = Depends(get_current_uid),
-    service: SettlementService = Depends(get_settlement_service),
-):
-    await service.create({
-        "room_id": room_id,
-        "from_uid": current_uid,
-        "to_uid": data.to_uid,
-        "amount": data.amount,
-    })
-    return {"ok": True}
 
 
 @router.post("/rooms/{room_id}/settle/request")
@@ -222,12 +173,6 @@ async def settlement_history(
     return await service.history(room_id)
 
 
-@router.get("/users/me/settle/history")
-async def user_settle_history(
-    current_uid: str = Depends(get_current_uid),
-    service: SettlementService = Depends(get_settlement_service),
-):
-    return await service.history_by_uid(current_uid)
 
 
 
@@ -409,13 +354,6 @@ async def update_me(
     return {"ok": True}
 
 
-@router.delete("/users/me", response_model=dict)
-async def delete_me(
-    current_uid: str = Depends(get_current_uid),
-    service: UserService = Depends(get_user_service)
-):
-    await service.delete_user(current_uid)
-    return {"ok": True}
 
 
 --- FILE: ./config.py ---
@@ -481,13 +419,14 @@ import os
 from src import ws
 
 
+      #allow_origins=["http://localhost","http://localhost:3000"],
 # FastAPI app設定など
 app = FastAPI()
 
 # CORS
 app.add_middleware(
       CORSMiddleware,
-      allow_origins=["http://localhost","http://localhost:3000"],
+      allow_origins=["*"],
       allow_credentials=True,
       allow_methods=["*"],
       allow_headers=["*"],
@@ -584,7 +523,7 @@ class PointRecordRepository:
         self.collection = db.point_records
 
     async def create(self, data: dict) -> str:
-        data.setdefault("created_at", datetime.utcnow())
+        data.setdefault("created_at", datetime.now())
         data.setdefault("is_deleted", False)
         await self.collection.insert_one(data)
         return data["round_id"]
@@ -599,50 +538,12 @@ class PointRecordRepository:
             item.pop("_id", None)
         return items
 
-    async def history_by_uid(self, uid: str) -> List[dict]:
-        cursor = self.collection.find(
-            {"points.uid": uid, "is_deleted": False}
-        )
-        items = await cursor.to_list(length=100)
-        for item in items:
-            item.pop("_id", None)
-        return items
-
-    async def find_one(self, room_id: str, round_id: str) -> Optional[dict]:
-        item = await self.collection.find_one({
-            "room_id": room_id,
-            "round_id": round_id,
-            "is_deleted": False,
-        })
-        if item:
-            item.pop("_id", None)
-        return item
-
-    async def logical_delete(self, room_id: str, round_id: str) -> bool:
-        result = await self.collection.update_one(
-            {"room_id": room_id, "round_id": round_id},
-            {"$set": {"is_deleted": True}}
-        )
-        return result.modified_count == 1
-
 
 class SettlementRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db.settlements
 
-    async def create(self, data: dict) -> str:
-        data.setdefault("created_at", datetime.utcnow())
-        data.setdefault("is_deleted", False)
-        data.setdefault("approved", False)
-        result = await self.collection.insert_one(data)
-        return str(result.inserted_id)
 
-    async def approve(self, settlement_id: str) -> bool:
-        result = await self.collection.update_one(
-            {"_id": ObjectId(settlement_id), "is_deleted": False},
-            {"$set": {"approved": True, "approved_at": datetime.utcnow()}}
-        )
-        return result.modified_count == 1
 
     async def history(self, room_id: str) -> List[dict]:
         cursor = self.collection.find(
@@ -753,7 +654,7 @@ class RoomRepository:
         return doc is not None
 
     async def create(self, data: dict) -> str:
-        data["created_at"] = datetime.utcnow()
+        data["created_at"] = datetime.now()
         data["is_archived"] = False
         await self.collection.insert_one(data)
         return data["room_id"]
@@ -781,28 +682,38 @@ class RoomRepository:
     async def add_member(self, room_id: str, uid: str):
         await self.collection.update_one(
             {"room_id": room_id, "is_archived": False, "members.uid": {"$ne": uid}},
-            {"$push": {"members": {"uid": uid, "joined_at": datetime.utcnow()}}}
+            {"$push": {"members": {"uid": uid, "joined_at": datetime.now()}}}
         )
     async def add_pending_member(self, room_id: str, uid: str):
         await self.collection.update_one(
             {"room_id": room_id, "is_archived": False},
-            {"$push": {"pending_members": {"uid": uid, "requested_at": datetime.utcnow()}}}
+            {"$push": {"pending_members": {"uid": uid, "requested_at": datetime.now()}}}
         )
 
-    async def approve_pending_member(self, room_id: str, uid: str):
-        await self.collection.update_one(
-            {"room_id": room_id, "is_archived": False},
+    async def approve_pending_member(self, room_id: str, uid: str) -> bool:
+        result = await self.collection.update_one(
+            {
+                "room_id": room_id,
+                "is_archived": False,
+                "pending_members.uid": uid  # まだpendingな場合だけpull/push
+            },
             {
                 "$pull": {"pending_members": {"uid": uid}},
-                "$push": {"members": {"uid": uid, "joined_at": datetime.utcnow()}}
+                "$push": {"members": {"uid": uid, "joined_at": datetime.now()}}
             }
         )
-
-    async def remove_pending_member(self, room_id: str, uid: str):
-        await self.collection.update_one(
-            {"room_id": room_id, "is_archived": False},
+        return result.modified_count == 1
+    # remove_pending_member
+    async def remove_pending_member(self, room_id: str, uid: str) -> bool:
+        result = await self.collection.update_one(
+            {
+                "room_id": room_id,
+                "is_archived": False,
+                "pending_members.uid": uid  # まだpendingな場合だけpull
+            },
             {"$pull": {"pending_members": {"uid": uid}}}
         )
+        return result.modified_count == 1
 
     async def remove_member(self, room_id: str, uid: str):
         await self.collection.update_one(
@@ -886,7 +797,7 @@ class UserRepository:
         return await self.collection.find_one({"external_id": external_id, "is_deleted": False})
 
     async def create(self, data: dict) -> str:
-        data["registered_at"] = datetime.utcnow()
+        data["registered_at"] = datetime.now()
         data["is_deleted"] = False
         await self.collection.insert_one(data)
         return data["uid"]
@@ -902,12 +813,6 @@ class UserRepository:
         cursor = self.collection.find({"is_deleted": False})
         return await cursor.to_list(length=1000)
 
-    async def logical_delete(self, uid: str) -> bool:
-        result = await self.collection.update_one(
-            {"uid": uid, "is_deleted": False},
-            {"$set": {"is_deleted": True}}
-        )
-        return result.modified_count == 1
 
 
 
@@ -928,7 +833,6 @@ class UserCreate(BaseModel):
 class UserResponse(BaseModel):
     uid: str
     display_name: str
-    email: EmailStr
     icon_url: Optional[str]
     registered_at: datetime
     is_online: Optional[bool] = None   # 追加
@@ -1035,37 +939,10 @@ class PointService:
 
     # ─── ユースケースメソッド ───
 
-    async def add_points(self, room_id: str, round_id: str, points: list, approved_by: list[str]):
-        room = await self.room_repo.get_by_id(room_id)
-        if not room:
-            raise HTTPException(404, "Room not found")
-
-        members = {m["uid"] for m in room.get("members", [])}
-        if members != set(approved_by):
-            raise HTTPException(400, "All members must approve the record.")
-
-        return await self.point_repo.create({
-            "room_id": room_id,
-            "round_id": round_id,
-            "points": points,
-            "approved_by": approved_by,
-            "created_at": datetime.utcnow(),
-            "is_deleted": False,
-        })
-
     async def history(self, room_id: str):
         return await self.point_repo.history(room_id)
 
-    async def history_by_uid(self, uid: str):
-        return await self.point_repo.history_by_uid(uid)
 
-    async def logical_delete(self, room_id: str, round_id: str, current_uid: str):
-        room = await self.room_repo.get_by_id(room_id)
-        if not room:
-            raise HTTPException(404, "Room not found")
-        if room["created_by"] != current_uid:
-            raise HTTPException(403, "Only room owner can delete point record")
-        return await self.point_repo.logical_delete(room_id, round_id)
 
     async def start_round(self, room_id: str):
         room = await self.room_repo.get_by_id(room_id)
@@ -1170,7 +1047,7 @@ class PointService:
                 "round_id": round_id,
                 "points": [{"uid": k, "value": v} for k, v in subs.items()],
                 "approved_by": list(members),
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(),
                 "is_deleted": False,
             })
             await self.cache.clear(room_id)
@@ -1181,15 +1058,6 @@ class PointService:
                 "approved_by": list(members),
             })
 
-    async def get_approval_status(self, room_id: str, round_id: str):
-        approvals = await self.cache.get_approvals(room_id)
-        if approvals:
-            return {"approved_by": approvals}
-
-        record = await self.point_repo.find_one(room_id, round_id)
-        if not record:
-            raise HTTPException(404, "Record not found")
-        return {"approved_by": record.get("approved_by", [])}
 
     async def cancel_round(self, room_id: str, reason: str):
         round_id = await self.cache.get_round_id(room_id)
@@ -1225,9 +1093,6 @@ class SettlementService:
         self.cache = cache_repo
         self.point_repo = point_repo
 
-    async def create(self, data: dict):
-        # シンプル精算（管理者承認不要な場合）
-        return await self.settle_repo.create(data)
 
     async def request(self, room_id: str, from_uid: str, to_uid: str, amount: int):
         # 1) 既存リクエストの存在チェック
@@ -1267,7 +1132,7 @@ class SettlementService:
                 {"uid": to_uid,     "value": -amount},
             ],
             "approved_by": [from_uid, to_uid],
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(),
             "is_deleted": False,
         })
 
@@ -1362,9 +1227,9 @@ class RoomService:
             "description": data.get("description"),
             "color_id": data["color_id"],
             "created_by": uid,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(),
             "is_archived": False,
-            "members": [{"uid": uid, "joined_at": datetime.utcnow()}],
+            "members": [{"uid": uid, "joined_at": datetime.now()}],
             "pending_members": []
         }
         await self.room_repo.create(payload)
@@ -1464,47 +1329,46 @@ class RoomService:
         if task:
             task.cancel()
 
+    # approve_member
     async def approve_member(self, room_id: str, applicant_uid: str, approver_uid: str):
         room = await self.room_repo.get_by_id(room_id)
         if not any(m["uid"] == approver_uid for m in room["members"]):
             raise HTTPException(status_code=403, detail="No permission")
-        await self.room_repo.approve_pending_member(room_id, applicant_uid)
+        ok = await self.room_repo.approve_pending_member(room_id, applicant_uid)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Already processed or not pending")
         await send_event(applicant_uid, {"type": "join_approved", "room_id": room_id})
         self._cancel_pending_timer(room_id, applicant_uid)
 
 
+    # cancel_join_request
     async def cancel_join_request(self, room_id: str, user_id: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
-        pending_members = room.get("pending_members", [])
-        if not any(m["uid"] == user_id for m in pending_members):
-            raise HTTPException(status_code=400, detail="Not in pending list")
-        await self.room_repo.remove_pending_member(room_id, user_id)
+        ok = await self.room_repo.remove_pending_member(room_id, user_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Not in pending list or already processed")
         for m in room["members"]:
             await send_event(m["uid"], {"type": "join_request_cancelled", "room_id": room_id, "user_id": user_id})
         await send_event(user_id, {"type": "join_request_cancelled", "room_id": room_id, "user_id": user_id})
         self._cancel_pending_timer(room_id, user_id)
-
+    
+    # reject_member
     async def reject_member(self, room_id: str, applicant_uid: str, approver_uid: str):
         room = await self.room_repo.get_by_id(room_id)
-        # 承認者がメンバーでなければ拒否
         if not any(m["uid"] == approver_uid for m in room["members"]):
             raise HTTPException(status_code=403, detail="No permission")
-        # pendingにいなければエラー
-        if not any(m["uid"] == applicant_uid for m in room.get("pending_members", [])):
-            raise HTTPException(status_code=400, detail="Not in pending list")
-        # pending_membersから削除のみ
-        # pending_members から削除
-        await self.room_repo.remove_pending_member(room_id, applicant_uid)
-        # 拒否されたことを申請者に通知 → クライアント側で pending_members リストから消える
-        from src.ws import send_event
+        ok = await self.room_repo.remove_pending_member(room_id, applicant_uid)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Already processed or not pending")
         await send_event(applicant_uid, {
             "type": "join_request_cancelled",
             "room_id": room_id,
             "user_id": applicant_uid
         })
-
+        self._cancel_pending_timer(room_id, applicant_uid)
+    
     async def leave_room(self, room_id: str, uid: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
@@ -1592,18 +1456,14 @@ class UserService:
         return ok
 
     async def list_users(self):
-        return await self.repo.list_all()
-
-    async def delete_user(self, uid: str):
-        # ルーム所属チェック
-        rooms = await self.room_repo.list_rooms_for_user(uid)
-        if rooms:
-            raise Exception("ユーザーはまだいずれかのルームに所属しているため削除できません")
-        # 論理削除
-        ok = await self.repo.logical_delete(uid)
-        if not ok:
-            raise Exception("ユーザー削除に失敗しました")
-        return True
+        users = await self.repo.list_all()
+        # email以外を抽出して新しいdictを作る
+        result = [
+            {k: v for k, v in user.items() if k != "email"}
+            for user in users
+        ]
+        return result
+ 
 
 
 
@@ -1617,6 +1477,9 @@ from jose import jwt
 from src.config import AUTH_PROVIDER, SUPABASE_JWT_SECRET, FIREBASE_PROJECT_ID
 from src.db import get_db
 
+from google.oauth2 import id_token as firebase_id_token
+from google.auth.transport import requests as firebase_requests
+
 logger = logging.getLogger(__name__)
 
 async def get_current_uid(
@@ -1629,26 +1492,35 @@ async def get_current_uid(
         logger.warning("Authorization header missing or invalid")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     token = auth.split()[1]
+    
     try:
-        # --- JWTからexternal_idを取得 ---
+        external_id = None # 変数を初期化
+
         if AUTH_PROVIDER == "supabase":
             try:
                 payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+                external_id = payload["sub"]
             except Exception as e:
                 logger.error("supabase decode error: %s", e)
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"supabase decode error: {e}")
-            external_id = payload["sub"]
 
         elif AUTH_PROVIDER == "firebase":
-            from google.auth.transport import requests
-            from google.oauth2 import id_token
-            id_info = id_token.verify_oauth2_token(token, requests.Request(), FIREBASE_PROJECT_ID)
-            external_id = id_info["uid"]
+            try:
+                id_info = firebase_id_token.verify_oauth2_token(
+                    token,
+                    firebase_requests.Request(),
+                    FIREBASE_PROJECT_ID
+                )
+                external_id = id_info["sub"]
+            except Exception as e:
+                raise e # エラーは外側で処理
         else:
             logger.error(f"Unknown AUTH_PROVIDER: {AUTH_PROVIDER}")
             raise HTTPException(status_code=500, detail="Invalid AUTH_PROVIDER setting")
 
-        # --- DBからexternal_id→uidを逆引き ---
+        if not external_id:
+             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not retrieve external_id from token")
+
         user = await db.users.find_one({"external_id": external_id, "is_deleted": False})
         if not user:
             logger.warning(f"User with external_id={external_id} not found")
@@ -1659,15 +1531,34 @@ async def get_current_uid(
         logger.error(f"JWT decode/verify failed: {e}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"JWT verify failed: {type(e).__name__}: {e}")
 
+
 async def get_current_external_id(request: Request) -> str:
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     token = auth.split()[1]
-    # Supabase例
-    payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
-    return payload["sub"]
 
+    if AUTH_PROVIDER == "supabase":
+        try:
+            payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+            return payload["sub"]
+        except Exception as e:
+            logger.error("Supabase token decode error for external_id: %s", e)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Supabase token")
+
+    elif AUTH_PROVIDER == "firebase":
+        try:
+            id_info = firebase_id_token.verify_oauth2_token(
+                token,
+                firebase_requests.Request(),
+                FIREBASE_PROJECT_ID
+            )
+            return id_info["sub"]
+        except Exception as e:
+            logger.error(f"Firebase token verify error for external_id: {type(e).__name__}: {e}")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Firebase token")
+    else:
+        raise HTTPException(status_code=500, detail="Invalid AUTH_PROVIDER setting")
 
 
 --- FILE: ./ws.py ---
@@ -1677,17 +1568,16 @@ from jose import jwt
 from src.config import SUPABASE_JWT_SECRET, AUTH_PROVIDER, FIREBASE_PROJECT_ID
 from src.db import db, redis_client
 import asyncio
-
+from google.oauth2 import id_token as firebase_id_token
+from google.auth.transport import requests as firebase_requests
 router = APIRouter()
 active_connections = {}
 
-# トークンから「アプリuid」抽出
 async def get_uid_from_token(token: str):
     print(f"[WS] get_uid_from_token called. token={token[:16]}...")
     if not token:
         print("[WS] No token provided.")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-    # --- sub or uid 抜き出し ---
     if AUTH_PROVIDER == "supabase":
         try:
             payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
@@ -1698,11 +1588,13 @@ async def get_uid_from_token(token: str):
             raise
     elif AUTH_PROVIDER == "firebase":
         try:
-            from google.auth.transport import requests
-            from google.oauth2 import id_token
-            id_info = id_token.verify_oauth2_token(token, requests.Request(), FIREBASE_PROJECT_ID)
-            external_id = id_info["uid"]
-            print(f"[WS] Firebase JWT decode OK. uid={external_id}")
+            id_info = firebase_id_token.verify_oauth2_token(
+            token,
+            firebase_requests.Request(),
+            FIREBASE_PROJECT_ID
+            )
+            external_id = id_info["sub"]
+            print(f"[WS] Firebase JWT verify OK. uid={external_id}")
         except Exception as e:
             print(f"[WS] Firebase JWT decode ERROR: {e}")
             raise
@@ -1710,7 +1602,6 @@ async def get_uid_from_token(token: str):
         print("[WS] Invalid auth provider")
         raise HTTPException(status_code=400, detail="Invalid auth provider")
 
-    # --- external_idからuidをDB検索 ---
     user = await db.users.find_one({"external_id": external_id, "is_deleted": False})
     if not user:
         print(f"[WS] User not found for external_id={external_id}")
@@ -1720,38 +1611,31 @@ async def get_uid_from_token(token: str):
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
-    # 1) 認証
     try:
         uid = await get_uid_from_token(token)
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # 2) 接続承認＆登録
     await websocket.accept()
     active_connections[uid] = websocket
 
     try:
         while True:
             data = await websocket.receive_json()
-            # 型保証
             if not isinstance(data, dict) or "type" not in data:
                 continue
 
             t = data["type"]
 
-            # 3) ping/pong
             if t == "ping":
                 await websocket.send_json({"type": "pong"})
                 continue
 
-            # 4) 入室通知
             if t == "enter_room":
                 room_id = data.get("room_id")
                 if room_id:
-                    # Redis のセットに追加
                     await redis_client.sadd(f"presence:{room_id}", uid)
-                    # ルーム全員に通知
                     await broadcast_event_to_room(room_id, {
                         "type": "user_entered",
                         "room_id": room_id,
@@ -1759,7 +1643,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     })
                 continue
 
-            # 5) 退室通知
             if t == "leave_room":
                 room_id = data.get("room_id")
                 if room_id:
@@ -1771,14 +1654,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     })
                 continue
 
-            # ...（必要に応じて他のメッセージにも対応）...
     except WebSocketDisconnect:
-        # 切断時に全ルームから削除
         keys = await redis_client.keys("presence:*")
         for key in keys:
             await redis_client.srem(key, uid)
     finally:
-        # 接続リストから除外
         if uid in active_connections and active_connections[uid] is websocket:
             del active_connections[uid]
 
@@ -1797,8 +1677,6 @@ async def send_event(uid: str, event: dict):
     else:
         print(f"[WS] send_event: No active connection for uid={uid}")
 
-# 追加場所: src/ws.py の末尾（send_event の下あたり）
-# src/ws.py の末尾に追加
 
 async def broadcast_event_to_room(room_id: str, event: dict):
     """ room_id の全 member.uid に send_event を投げる """

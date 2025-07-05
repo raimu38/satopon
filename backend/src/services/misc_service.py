@@ -34,37 +34,10 @@ class PointService:
 
     # ─── ユースケースメソッド ───
 
-    async def add_points(self, room_id: str, round_id: str, points: list, approved_by: list[str]):
-        room = await self.room_repo.get_by_id(room_id)
-        if not room:
-            raise HTTPException(404, "Room not found")
-
-        members = {m["uid"] for m in room.get("members", [])}
-        if members != set(approved_by):
-            raise HTTPException(400, "All members must approve the record.")
-
-        return await self.point_repo.create({
-            "room_id": room_id,
-            "round_id": round_id,
-            "points": points,
-            "approved_by": approved_by,
-            "created_at": datetime.utcnow(),
-            "is_deleted": False,
-        })
-
     async def history(self, room_id: str):
         return await self.point_repo.history(room_id)
 
-    async def history_by_uid(self, uid: str):
-        return await self.point_repo.history_by_uid(uid)
 
-    async def logical_delete(self, room_id: str, round_id: str, current_uid: str):
-        room = await self.room_repo.get_by_id(room_id)
-        if not room:
-            raise HTTPException(404, "Room not found")
-        if room["created_by"] != current_uid:
-            raise HTTPException(403, "Only room owner can delete point record")
-        return await self.point_repo.logical_delete(room_id, round_id)
 
     async def start_round(self, room_id: str):
         room = await self.room_repo.get_by_id(room_id)
@@ -169,7 +142,7 @@ class PointService:
                 "round_id": round_id,
                 "points": [{"uid": k, "value": v} for k, v in subs.items()],
                 "approved_by": list(members),
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(),
                 "is_deleted": False,
             })
             await self.cache.clear(room_id)
@@ -180,15 +153,6 @@ class PointService:
                 "approved_by": list(members),
             })
 
-    async def get_approval_status(self, room_id: str, round_id: str):
-        approvals = await self.cache.get_approvals(room_id)
-        if approvals:
-            return {"approved_by": approvals}
-
-        record = await self.point_repo.find_one(room_id, round_id)
-        if not record:
-            raise HTTPException(404, "Record not found")
-        return {"approved_by": record.get("approved_by", [])}
 
     async def cancel_round(self, room_id: str, reason: str):
         round_id = await self.cache.get_round_id(room_id)
@@ -224,9 +188,6 @@ class SettlementService:
         self.cache = cache_repo
         self.point_repo = point_repo
 
-    async def create(self, data: dict):
-        # シンプル精算（管理者承認不要な場合）
-        return await self.settle_repo.create(data)
 
     async def request(self, room_id: str, from_uid: str, to_uid: str, amount: int):
         # 1) 既存リクエストの存在チェック
@@ -266,7 +227,7 @@ class SettlementService:
                 {"uid": to_uid,     "value": -amount},
             ],
             "approved_by": [from_uid, to_uid],
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(),
             "is_deleted": False,
         })
 

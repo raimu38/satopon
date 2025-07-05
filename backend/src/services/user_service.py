@@ -63,16 +63,6 @@ class UserService:
         ]
         return result
  
-    async def delete_user(self, uid: str):
-        # ルーム所属チェック
-        rooms = await self.room_repo.list_rooms_for_user(uid)
-        if rooms:
-            raise Exception("ユーザーはまだいずれかのルームに所属しているため削除できません")
-        # 論理削除
-        ok = await self.repo.logical_delete(uid)
-        if not ok:
-            raise Exception("ユーザー削除に失敗しました")
-        return True
 
 
 
