@@ -27,6 +27,17 @@ class PointRecordRepository:
             item.pop("_id", None)
         return items
 
+    async def history_by_uid(self, uid: str) -> List[dict]:
+        cursor = self.collection.find({
+            "points.uid": uid,
+            "is_deleted": False,
+        })
+        items = await cursor.to_list(length=100)
+        # Mongo の _id は不要なので削除
+        for item in items:
+            item.pop("_id", None)
+        return items
+
 
 class SettlementRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
@@ -95,11 +106,17 @@ class RoundCacheRepository:
     def _prefix(self, room_id: str) -> str:
         return f"points:{room_id}"
 
-    async def start(self, room_id: str, round_id: str) -> None:
+    async def start(self, room_id: str, round_id: str, participants: list[str]) -> None:
+        """
+        participants: ラウンド開始時に在室していたユーザーUIDリスト
+        """
         p = self._prefix(room_id)
-        await self.redis.hset(p, mapping={"round_id": round_id})
+        # round_id と開始時参加者を保存
+        await self.redis.hset(p, mapping={
+           "round_id":    round_id,
+            "participants": ",".join(participants),
+        })
         await self.redis.delete(f"{p}:submissions", f"{p}:approvals")
-
     async def get_round_id(self, room_id: str) -> Optional[str]:
         val = await self.redis.hget(self._prefix(room_id), "round_id")
         return val.decode() if val else None

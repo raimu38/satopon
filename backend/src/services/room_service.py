@@ -95,7 +95,6 @@ class RoomService:
         room = await self.room_repo.get_by_id(room_id)
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
-        # すでにメンバーなら何もしない
         if any(m["uid"] == uid for m in room.get("members", [])):
             return True
         await self.room_repo.add_member(room_id, uid)

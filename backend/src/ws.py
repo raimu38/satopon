@@ -72,6 +72,20 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
     active_connections[uid] = websocket
 
+    # SettlementCacheRepository を使ってキャッシュを探せるように準備
+    from src.repositories.misc_repo import SettlementCacheRepository
+    settle_cache = SettlementCacheRepository(redis_client)
+
+    async def cancel_round(room_id: str, reason: str):
+        from src.repositories.misc_repo import RoundCacheRepository
+        cache = RoundCacheRepository(redis_client)
+        await cache.clear(room_id)
+        await broadcast_event_to_room(room_id, {
+            "type":    "point_round_cancelled",
+            "room_id": room_id,
+            "reason":  reason,
+        })
+
     try:
         while True:
             data = await websocket.receive_json()
@@ -79,44 +93,66 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 continue
 
             event_type = data.get("type")
+            room_id    = data.get("room_id")
+
+            # ping/pong
             if event_type == "ping":
                 await websocket.send_json({"type": "pong"})
                 continue
 
-            if event_type == "enter_room":
-                room_id = data.get("room_id")
-                if room_id:
+            # 入室／退室
+            if event_type in ("enter_room", "leave_room") and room_id:
+                # presence 更新
+                if event_type == "enter_room":
                     await redis_client.sadd(f"presence:{room_id}", uid)
-                    await broadcast_event_to_room(room_id, {
-                        "type": "user_entered",
-                        "room_id": room_id,
-                        "uid": uid,
-                    })
+                else:
+                    await redis_client.srem(f"presence:{room_id}", uid)
+
+                # user_entered / user_left をブロードキャスト
+                await broadcast_event_to_room(room_id, {
+                    "type":    f"user_{'entered' if event_type=='enter_room' else 'left'}",
+                    "room_id": room_id,
+                    "uid":     uid,
+                })
+
+                # --- 追加処理: 未承認の SATO リクエストをキャッシュから探して即プッシュ ---
+                if event_type == "enter_room":
+                    # キーのパターン: settle:<room_id>:<from_uid>-><to_uid>
+                    async for key in redis_client.scan_iter(f"settle:{room_id}:*->{uid}"):
+                        data = await redis_client.hgetall(key)
+                        if data and data.get("amount"):
+                            await websocket.send_json({
+                                "type":     "settle_requested",
+                                "room_id":  data["room_id"],
+                                "from_uid": data["from_uid"],
+                                "to_uid":   data["to_uid"],
+                                "amount":   int(data["amount"]),
+                            })
+                # ------------------------------------------------------------------
+
+                # アクティブルラウンドがあればキャンセル
+                meta = await redis_client.hgetall(f"points:{room_id}")
+                if meta.get("round_id"):
+                    await cancel_round(room_id, "User entered/left during active round")
+
                 continue
 
-            if event_type == "leave_room":
-                room_id = data.get("room_id")
-                if room_id:
-                    await redis_client.srem(f"presence:{room_id}", uid)
-                    await broadcast_event_to_room(room_id, {
-                        "type": "user_left",
-                        "room_id": room_id,
-                        "uid": uid,
-                    })
+            # クライアントからの明示的キャンセル
+            if event_type == "cancel_point_round" and room_id:
+                await cancel_round(room_id, "User cancelled the round")
                 continue
+
+            # （他のイベント処理があればここに…）
 
     except WebSocketDisconnect:
-        # 切断時は全ルームから presence を削除
+        # 切断時はすべての presence:* から削除
         keys = await redis_client.keys("presence:*")
         for key in keys:
             await redis_client.srem(key, uid)
 
     finally:
-        # 接続リストから除去
         if active_connections.get(uid) is websocket:
             del active_connections[uid]
-
-
 async def send_event(uid: str, event: dict):
     ws = active_connections.get(uid)
     if not ws:
@@ -124,7 +160,6 @@ async def send_event(uid: str, event: dict):
     try:
         await ws.send_json(event)
     except Exception:
-        # 送信失敗したら接続削除
         if active_connections.get(uid) is ws:
             del active_connections[uid]
 

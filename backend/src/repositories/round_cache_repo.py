@@ -13,13 +13,29 @@ class RoundCacheRepository:
     def _approvals_key(self, room_id: str) -> str:
         return f"{self._round_key(room_id)}:apprs"
 
-    async def start(self, room_id: str, round_id: str, ttl: int = 180) -> None:
-        # ラウンド開始情報を保存し、TTLをセット
-        await self.redis.hset(self._round_key(room_id), mapping={"round_id": round_id})
-        await self.redis.expire(self._round_key(room_id), ttl)
+    async def start(
+        self,
+        room_id: str,
+        round_id: str,
+        participants: list[str],
+        ttl: int = 180,
+    ) -> None:
+        """
+        ラウンドIDと開始時参加者リストを保存し、
+        各キーにTTLを設定します。
+        """
+        key = self._round_key(room_id)
+        await self.redis.hset(
+            key,
+            mapping={
+                "round_id":     round_id,
+                "participants": ",".join(participants),
+            },
+        )
+        # TTL をセット
+        await self.redis.expire(key, ttl)
         await self.redis.expire(self._subs_key(room_id), ttl)
         await self.redis.expire(self._approvals_key(room_id), ttl)
-
     async def get_round_id(self, room_id: str) -> str | None:
         # 現在のラウンドIDを取得
         return await self.redis.hget(self._round_key(room_id), "round_id")
@@ -43,6 +59,13 @@ class RoundCacheRepository:
 
     async def get_approvals(self, room_id: str) -> set[str]:
         return await self.redis.smembers(self._approvals_key(room_id))
+
+    async def get_participants(self, room_id: str) -> list[str]:
+        key = self._round_key(room_id)
+        raw = await self.redis.hget(key, "participants")
+        if not raw:
+            return []
+        return raw.split(",")
 
     async def clear(self, room_id: str) -> None:
         # ラウンド関連キーをすべて削除

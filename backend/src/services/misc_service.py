@@ -42,19 +42,23 @@ class PointService:
     async def start_round(self, room_id: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
-            raise HTTPException(404, "Room not found")
+             raise HTTPException(404, "Room not found")
+ 
+        # ——— 在室ユーザー一覧を Redis から取得 ———
+        presence_key = f"presence:{room_id}"
+        participants = await self.cache.redis.smembers(presence_key)
+        participants = list(participants)
+        if len(participants) < 2:
+            raise HTTPException(400, "Need 2+ users to start round")
 
         # キャッシュ初期化・新ラウンドID生成
         await self.cache.clear(room_id)
         round_id = _make_round_id("PON")
-        await self.cache.start(room_id, round_id)
-
-        # タイムアウト監視をセット
+        await self.cache.start(room_id, round_id, participants)
         if task := self._timeout_tasks.get(room_id):
             task.cancel()
         self._timeout_tasks[room_id] = asyncio.create_task(self._watch_timeout(room_id))
 
-        # 開始通知
         await broadcast_event_to_room(room_id, {
             "type": "point_round_started",
             "room_id": room_id,
@@ -73,18 +77,16 @@ class PointService:
             "uid": uid,
         })
 
-        room = await self.room_repo.get_by_id(room_id)
         subs = await self.cache.get_submissions(room_id)
-
-        # 全員提出チェック
-        if len(subs) == len(room.get("members", [])):
-            # タイマー取消
+        round_meta_key = self.cache._round_key(room_id)
+        meta = await self.cache.redis.hgetall(round_meta_key)
+        start_participants = meta.get("participants", "").split(",")
+        if len(subs) == len(start_participants):# タイマー取消
             if task := self._timeout_tasks.pop(room_id, None):
                 task.cancel()
 
             total = sum(subs.values())
             if total != 0:
-                # キャンセル
                 await broadcast_event_to_room(room_id, {
                     "type": "point_round_cancelled",
                     "room_id": room_id,
@@ -124,8 +126,8 @@ class PointService:
         await self.cache.add_approval(room_id, current_uid)
         approvals = set(await self.cache.get_approvals(room_id))
 
-        room = await self.room_repo.get_by_id(room_id)
-        members = {m["uid"] for m in room.get("members", [])}
+        participants = await self.cache.get_participants(room_id)
+        members = set(participants)
 
         await broadcast_event_to_room(room_id, {
             "type": "point_approved",

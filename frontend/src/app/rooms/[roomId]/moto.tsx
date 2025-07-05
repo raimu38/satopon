@@ -24,7 +24,7 @@ export default function RoomPage() {
   const [submittedBy, setSubmittedBy] = useState<Set<string>>(new Set());
   const [submissions, setSubmissions] = useState<Record<string, number>>({});
   const [finalTable, setFinalTable] = useState<Record<string, number> | null>(
-    null,
+    null
   );
   const [approvedBy, setApprovedBy] = useState<Set<string>>(new Set());
 
@@ -380,7 +380,7 @@ export default function RoomPage() {
                     await api.approveSettlementRequest(
                       token!,
                       roomId!,
-                      pendingReq.from_uid,
+                      pendingReq.from_uid
                     );
                     setPendingReq(null);
                   }}
@@ -393,7 +393,7 @@ export default function RoomPage() {
                     await api.rejectSettlementRequest(
                       token!,
                       roomId!,
-                      pendingReq.from_uid,
+                      pendingReq.from_uid
                     );
                     setPendingReq(null);
                   }}
@@ -443,7 +443,7 @@ export default function RoomPage() {
                   token!,
                   roomId!,
                   settleInput.to_uid,
-                  settleInput.amount,
+                  settleInput.amount
                 );
                 setSettleInput({ to_uid: "", amount: 0 });
               }}
@@ -471,7 +471,7 @@ export default function RoomPage() {
                       await api.approveSettlement(
                         token,
                         roomId,
-                        s._id ?? s.settlement_id,
+                        s._id ?? s.settlement_id
                       );
                       setMsg("approved-settle");
                     }}

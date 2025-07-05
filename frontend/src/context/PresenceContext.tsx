@@ -25,6 +25,7 @@ interface PresenceContextValue {
   unsubscribePresence: (room_id: string) => void;
   enterRoom: (room_id: string) => void;
   leaveRoom: (room_id: string) => void;
+  sendEvent: (ev: object) => void;
   onEvent: (listener: (ev: Event) => void) => () => void;
 }
 
@@ -108,6 +109,12 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
     };
   }, [token]);
 
+  const sendEvent = useCallback((ev: object) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(ev));
+    }
+  }, []);
+
   /* --------------------------- dashboard --------------------------- */
   const subscribePresence = useCallback(
     (room_id: string) => {
@@ -168,6 +175,7 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
         unsubscribePresence,
         enterRoom,
         leaveRoom,
+        sendEvent,
         onEvent,
       }}
     >

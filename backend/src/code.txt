@@ -606,11 +606,17 @@ class RoundCacheRepository:
     def _prefix(self, room_id: str) -> str:
         return f"points:{room_id}"
 
-    async def start(self, room_id: str, round_id: str) -> None:
+    async def start(self, room_id: str, round_id: str, participants: list[str]) -> None:
+        """
+        participants: ラウンド開始時に在室していたユーザーUIDリスト
+        """
         p = self._prefix(room_id)
-        await self.redis.hset(p, mapping={"round_id": round_id})
+        # round_id と開始時参加者を保存
+        await self.redis.hset(p, mapping={
+           "round_id":    round_id,
+            "participants": ",".join(participants),
+        })
         await self.redis.delete(f"{p}:submissions", f"{p}:approvals")
-
     async def get_round_id(self, room_id: str) -> Optional[str]:
         val = await self.redis.hget(self._prefix(room_id), "round_id")
         return val.decode() if val else None
@@ -739,13 +745,29 @@ class RoundCacheRepository:
     def _approvals_key(self, room_id: str) -> str:
         return f"{self._round_key(room_id)}:apprs"
 
-    async def start(self, room_id: str, round_id: str, ttl: int = 180) -> None:
-        # ラウンド開始情報を保存し、TTLをセット
-        await self.redis.hset(self._round_key(room_id), mapping={"round_id": round_id})
-        await self.redis.expire(self._round_key(room_id), ttl)
+    async def start(
+        self,
+        room_id: str,
+        round_id: str,
+        participants: list[str],
+        ttl: int = 180,
+    ) -> None:
+        """
+        ラウンドIDと開始時参加者リストを保存し、
+        各キーにTTLを設定します。
+        """
+        key = self._round_key(room_id)
+        await self.redis.hset(
+            key,
+            mapping={
+                "round_id":     round_id,
+                "participants": ",".join(participants),
+            },
+        )
+        # TTL をセット
+        await self.redis.expire(key, ttl)
         await self.redis.expire(self._subs_key(room_id), ttl)
         await self.redis.expire(self._approvals_key(room_id), ttl)
-
     async def get_round_id(self, room_id: str) -> str | None:
         # 現在のラウンドIDを取得
         return await self.redis.hget(self._round_key(room_id), "round_id")
@@ -769,6 +791,13 @@ class RoundCacheRepository:
 
     async def get_approvals(self, room_id: str) -> set[str]:
         return await self.redis.smembers(self._approvals_key(room_id))
+
+    async def get_participants(self, room_id: str) -> list[str]:
+        key = self._round_key(room_id)
+        raw = await self.redis.hget(key, "participants")
+        if not raw:
+            return []
+        return raw.split(",")
 
     async def clear(self, room_id: str) -> None:
         # ラウンド関連キーをすべて削除
@@ -947,19 +976,23 @@ class PointService:
     async def start_round(self, room_id: str):
         room = await self.room_repo.get_by_id(room_id)
         if not room:
-            raise HTTPException(404, "Room not found")
+             raise HTTPException(404, "Room not found")
+ 
+        # ——— 在室ユーザー一覧を Redis から取得 ———
+        presence_key = f"presence:{room_id}"
+        participants = await self.cache.redis.smembers(presence_key)
+        participants = list(participants)
+        if len(participants) < 2:
+            raise HTTPException(400, "Need 2+ users to start round")
 
         # キャッシュ初期化・新ラウンドID生成
         await self.cache.clear(room_id)
         round_id = _make_round_id("PON")
-        await self.cache.start(room_id, round_id)
-
-        # タイムアウト監視をセット
+        await self.cache.start(room_id, round_id, participants)
         if task := self._timeout_tasks.get(room_id):
             task.cancel()
         self._timeout_tasks[room_id] = asyncio.create_task(self._watch_timeout(room_id))
 
-        # 開始通知
         await broadcast_event_to_room(room_id, {
             "type": "point_round_started",
             "room_id": room_id,
@@ -978,18 +1011,16 @@ class PointService:
             "uid": uid,
         })
 
-        room = await self.room_repo.get_by_id(room_id)
         subs = await self.cache.get_submissions(room_id)
-
-        # 全員提出チェック
-        if len(subs) == len(room.get("members", [])):
-            # タイマー取消
+        round_meta_key = self.cache._round_key(room_id)
+        meta = await self.cache.redis.hgetall(round_meta_key)
+        start_participants = meta.get("participants", "").split(",")
+        if len(subs) == len(start_participants):# タイマー取消
             if task := self._timeout_tasks.pop(room_id, None):
                 task.cancel()
 
             total = sum(subs.values())
             if total != 0:
-                # キャンセル
                 await broadcast_event_to_room(room_id, {
                     "type": "point_round_cancelled",
                     "room_id": room_id,
@@ -1029,8 +1060,8 @@ class PointService:
         await self.cache.add_approval(room_id, current_uid)
         approvals = set(await self.cache.get_approvals(room_id))
 
-        room = await self.room_repo.get_by_id(room_id)
-        members = {m["uid"] for m in room.get("members", [])}
+        participants = await self.cache.get_participants(room_id)
+        members = set(participants)
 
         await broadcast_event_to_room(room_id, {
             "type": "point_approved",
@@ -1136,10 +1167,7 @@ class SettlementService:
             "is_deleted": False,
         })
 
-        # キャッシュ削除
         await self.cache.clear_request(room_id, from_uid, to_uid)
-
-        # 完了通知（ルーム全員へ）
         await broadcast_event_to_room(room_id, {
             "type": "settle_completed",
             "room_id": room_id,
@@ -1151,14 +1179,15 @@ class SettlementService:
         return round_id
 
     async def reject_request(self, room_id: str, from_uid: str, to_uid: str):
-        # キャッシュ削除
         await self.cache.clear_request(room_id, from_uid, to_uid)
-        # 拒否通知
-        await send_event(from_uid, {
+        payload = {
             "type": "settle_rejected",
             "room_id": room_id,
-            "by_uid": to_uid,
-        })
+            "from_uid": from_uid,
+            "to_uid": to_uid,
+        }
+        await send_event(from_uid, payload)
+        await broadcast_event_to_room(room_id, payload)
 
     async def history(self, room_id: str):
         return await self.settle_repo.history(room_id)
@@ -1286,7 +1315,6 @@ class RoomService:
         room = await self.room_repo.get_by_id(room_id)
         if not room:
             raise HTTPException(status_code=404, detail="Room not found")
-        # すでにメンバーなら何もしない
         if any(m["uid"] == uid for m in room.get("members", [])):
             return True
         await self.room_repo.add_member(room_id, uid)
@@ -1688,6 +1716,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
     active_connections[uid] = websocket
 
+    async def cancel_round(room_id: str, reason: str):
+        from src.repositories.misc_repo import RoundCacheRepository
+        cache = RoundCacheRepository(redis_client)
+        await cache.clear(room_id)
+        await broadcast_event_to_room(room_id, {
+            "type":   "point_round_cancelled",
+            "room_id": room_id,
+            "reason":  reason,
+        })
+
     try:
         while True:
             data = await websocket.receive_json()
@@ -1695,43 +1733,50 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 continue
 
             event_type = data.get("type")
+            room_id    = data.get("room_id")
+
+            # ping/pong
             if event_type == "ping":
                 await websocket.send_json({"type": "pong"})
                 continue
 
-            if event_type == "enter_room":
-                room_id = data.get("room_id")
-                if room_id:
+            # 入室／退室
+            if event_type in ("enter_room", "leave_room") and room_id:
+                # presence 更新
+                if event_type == "enter_room":
                     await redis_client.sadd(f"presence:{room_id}", uid)
-                    await broadcast_event_to_room(room_id, {
-                        "type": "user_entered",
-                        "room_id": room_id,
-                        "uid": uid,
-                    })
+                else:
+                    await redis_client.srem(f"presence:{room_id}", uid)
+
+                # user_entered / user_left をブロードキャスト
+                await broadcast_event_to_room(room_id, {
+                    "type":      f"user_{'entered' if event_type=='enter_room' else 'left'}",
+                    "room_id":   room_id,
+                    "uid":       uid,
+                })
+
+                # アクティブルラウンドがあればキャンセル
+                meta = await redis_client.hgetall(f"points:{room_id}")
+                if meta.get("round_id"):
+                    await cancel_round(room_id, "User entered/left during active round")
                 continue
 
-            if event_type == "leave_room":
-                room_id = data.get("room_id")
-                if room_id:
-                    await redis_client.srem(f"presence:{room_id}", uid)
-                    await broadcast_event_to_room(room_id, {
-                        "type": "user_left",
-                        "room_id": room_id,
-                        "uid": uid,
-                    })
+            # クライアントからの明示的キャンセル
+            if event_type == "cancel_point_round" and room_id:
+                await cancel_round(room_id, "User cancelled the round")
                 continue
+
+            # （他のイベント処理があればここに…）
 
     except WebSocketDisconnect:
-        # 切断時は全ルームから presence を削除
+        # 切断時はすべての presence:* から削除
         keys = await redis_client.keys("presence:*")
         for key in keys:
             await redis_client.srem(key, uid)
 
     finally:
-        # 接続リストから除去
         if active_connections.get(uid) is websocket:
             del active_connections[uid]
-
 
 async def send_event(uid: str, event: dict):
     ws = active_connections.get(uid)
@@ -1740,7 +1785,6 @@ async def send_event(uid: str, event: dict):
     try:
         await ws.send_json(event)
     except Exception:
-        # 送信失敗したら接続削除
         if active_connections.get(uid) is ws:
             del active_connections[uid]
 
