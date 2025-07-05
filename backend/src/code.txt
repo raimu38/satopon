@@ -538,6 +538,17 @@ class PointRecordRepository:
             item.pop("_id", None)
         return items
 
+    async def history_by_uid(self, uid: str) -> List[dict]:
+        cursor = self.collection.find({
+            "points.uid": uid,
+            "is_deleted": False,
+        })
+        items = await cursor.to_list(length=100)
+        # Mongo の _id は不要なので削除
+        for item in items:
+            item.pop("_id", None)
+        return items
+
 
 class SettlementRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
@@ -1716,12 +1727,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
     active_connections[uid] = websocket
 
+    # SettlementCacheRepository を使ってキャッシュを探せるように準備
+    from src.repositories.misc_repo import SettlementCacheRepository
+    settle_cache = SettlementCacheRepository(redis_client)
+
     async def cancel_round(room_id: str, reason: str):
         from src.repositories.misc_repo import RoundCacheRepository
         cache = RoundCacheRepository(redis_client)
         await cache.clear(room_id)
         await broadcast_event_to_room(room_id, {
-            "type":   "point_round_cancelled",
+            "type":    "point_round_cancelled",
             "room_id": room_id,
             "reason":  reason,
         })
@@ -1750,15 +1765,31 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
 
                 # user_entered / user_left をブロードキャスト
                 await broadcast_event_to_room(room_id, {
-                    "type":      f"user_{'entered' if event_type=='enter_room' else 'left'}",
-                    "room_id":   room_id,
-                    "uid":       uid,
+                    "type":    f"user_{'entered' if event_type=='enter_room' else 'left'}",
+                    "room_id": room_id,
+                    "uid":     uid,
                 })
+
+                # --- 追加処理: 未承認の SATO リクエストをキャッシュから探して即プッシュ ---
+                if event_type == "enter_room":
+                    # キーのパターン: settle:<room_id>:<from_uid>-><to_uid>
+                    async for key in redis_client.scan_iter(f"settle:{room_id}:*->{uid}"):
+                        data = await redis_client.hgetall(key)
+                        if data and data.get("amount"):
+                            await websocket.send_json({
+                                "type":     "settle_requested",
+                                "room_id":  data["room_id"],
+                                "from_uid": data["from_uid"],
+                                "to_uid":   data["to_uid"],
+                                "amount":   int(data["amount"]),
+                            })
+                # ------------------------------------------------------------------
 
                 # アクティブルラウンドがあればキャンセル
                 meta = await redis_client.hgetall(f"points:{room_id}")
                 if meta.get("round_id"):
                     await cancel_round(room_id, "User entered/left during active round")
+
                 continue
 
             # クライアントからの明示的キャンセル
@@ -1777,7 +1808,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     finally:
         if active_connections.get(uid) is websocket:
             del active_connections[uid]
-
 async def send_event(uid: str, event: dict):
     ws = active_connections.get(uid)
     if not ws:

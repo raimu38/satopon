@@ -1,79 +1,74 @@
 @startuml
 actor User
-participant ReactApp as "React App"
-participant Backend as "Backend (Express)"
-database DB as "PostgreSQL"
+participant "React App" as ReactApp
+participant "Backend (FastAPI)" as Backend
+database "Redis" as Redis
+database "MongoDB" as MongoDB
 
-group 1. ルーム作成
-    User -> ReactApp      : CreateRoom(name, rules)
-    ReactApp -> Backend   : POST /api/rooms (name, rules)
-    Backend -> DB         : INSERT INTO rooms(...)
-    DB --> Backend        : roomId
-    Backend --> ReactApp  : 201 Created (roomId)
+group "1. ルーム作成"
+    User -> ReactApp: CreateRoom(name, rules)
+    ReactApp -> Backend: POST /api/rooms (name, rules)
+    Backend -> MongoDB: insert room document
+    MongoDB --> Backend: roomId
+    Backend --> ReactApp: 201 Created (roomId)
 end group
 
-group 2. ルーム参加
-    User -> ReactApp      : JoinRoom(roomId)
-    ReactApp -> Backend   : POST /api/rooms/:roomId/join (userId)
-    Backend -> DB         : INSERT INTO participants(...)
-    DB --> Backend        : success
-    Backend --> ReactApp  : 200 OK
-end group
-
-group 3. ゲーム開始
-    User -> ReactApp      : StartGame(roomId)
-    ReactApp -> Backend   : POST /api/rooms/:roomId/start
-    Backend -> Backend    : validate participantCount >= 2
-    Backend --> ReactApp  : WebSocket broadcast requestParticipation
-
-    loop 全員へ参加確認
-        ReactApp -> User  : show confirmation dialog
-        User -> ReactApp  : respond(true/false)
-        ReactApp -> Backend: WebSocket participationResponse(userId, response)
+group "2. WebSocket接続 & ルーム入室"
+    User -> ReactApp: new WebSocket(ws://…/ws?token=…)
+    ReactApp -> Backend: WebSocket connect(token)
+    Backend -> Backend: validate token → uid
+    Backend --> ReactApp: accept WebSocket
+    ReactApp -> Backend: {"type":"enter_room","room_id":roomId}
+    Backend -> Redis: SADD presence:roomId uid
+    Backend -> Redis: HGETALL settle:roomId:*->uid
+    alt 未承認リクエストあり
+        Backend --> ReactApp: {"type":"settle_requested",from_uid,amount,...}
     end
-
-    Backend -> Backend    : collect and filter responses
-    Backend -> DB        : UPDATE participants SET status='joined'
-    Backend --> ReactApp : WebSocket broadcast gameStarted
+    Backend --> ReactApp: {"type":"user_entered","room_id":roomId,"uid":uid}
 end group
 
-group 4. ゲーム終了・ポイント入力
-    User -> ReactApp      : EndGame(roomId)
-    ReactApp -> Backend   : POST /api/rooms/:roomId/end
-    Backend --> ReactApp  : WebSocket broadcast requestPoints
-
-    loop 各参加者
-        ReactApp -> User : input points
-        User -> ReactApp : submitPoints(points)
-        ReactApp -> Backend: WebSocket submitPoints(userId, points)
-    end
-
-    Backend -> Backend    : collect all points
-    Backend -> Backend    : calculate results
-    Backend --> ReactApp  : WebSocket broadcast showResults
+group "3. ルーム参加申請・承認"
+    ReactApp -> Backend: POST /api/rooms/:roomId/join
+    Backend -> MongoDB: add to pending_members
+    Backend --> ReactApp: 200 OK
+    Backend -> Backend: send_event to all members
+    Backend --> ReactApp: {"type":"join_request",...}
 end group
 
-group 5. 確認・確定
-    User -> ReactApp      : ConfirmResults()
-    ReactApp -> Backend   : POST /api/rooms/:roomId/confirm
-    Backend -> DB         : UPDATE users SET total_points = total_points + points
-    Backend --> ReactApp  : WebSocket broadcast resultsConfirmed
+group "4. PONラウンド開始～承認"
+    User -> ReactApp: StartPointRound
+    ReactApp -> Backend: POST /api/rooms/:roomId/points/start
+    Backend -> Redis: SMEMBERS presence:roomId
+    Backend -> Redis: HSET points:roomId, start meta
+    Backend --> ReactApp: WebSocket broadcast {"type":"point_round_started",...}
+    ' 以下、point_submitted～point_round_cancelled のやり取り
 end group
 
-group 6. 退出・ルーム削除
-    User -> ReactApp      : LeaveRoom(roomId)
-    ReactApp -> Backend   : DELETE /api/rooms/:roomId/participants/:userId
-    Backend -> DB         : DELETE FROM participants WHERE user_id = ? AND total_points = 0
-    DB --> Backend        : success
-    Backend --> ReactApp  : 200 OK
+group "5. SATOリクエスト"
+    User -> ReactApp: RequestSettlement(to_uid, amount)
+    ReactApp -> Backend: POST /api/rooms/:roomId/settle/request
+    Backend -> Redis: HSET settle:roomId:from->to, amount
+    Backend --> ReactApp: 200 OK
+    Backend -> Backend: send_event to to_uid
+    Backend --> ReactApp: {"type":"settle_requested",...}
+end group
 
-    User -> ReactApp      : DeleteRoom(roomId)
-    ReactApp -> Backend   : DELETE /api/rooms/:roomId
-    Backend -> DB         : DELETE FROM rooms WHERE total_points = 0
-    DB --> Backend        : success
-    Backend --> ReactApp  : 200 OK
+group "6. SATO承認／拒否"
+    ReactApp -> Backend: POST /api/rooms/:roomId/settle/request/{from}/approve
+    Backend -> Backend: approve_request → validate balances
+    Backend -> MongoDB: insert two PointRecord
+    Backend -> Redis: DEL settle:roomId:from->to
+    Backend --> ReactApp: WebSocket {"type":"settle_completed",...}
+end group
+
+group "7. 退出・ルーム削除"
+    ReactApp -> Backend: {"type":"leave_room","room_id":roomId} (WebSocket)
+    Backend -> Redis: SREM presence:roomId uid
+    Backend --> ReactApp: {"type":"user_left",...}
+    ReactApp -> Backend: DELETE /api/rooms/:roomId/leave
+    Backend -> MongoDB: remove from members if balance ok
+    Backend --> ReactApp: 200 OK
 end group
 
 @enduml
-
 
