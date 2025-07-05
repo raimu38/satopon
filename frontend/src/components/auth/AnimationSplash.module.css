@@ -1,54 +1,60 @@
-.splashRoot {
-  position: fixed;
-  inset: 0;
-  background: #18181b;
-  z-index: 100;
-  overflow: hidden;
-  pointer-events: none;
+/* AnimationSplash.module.css */
+
+.fadeOutShrink {
+  animation: shrinkFadeOut 0.8s forwards;
+  animation-delay: 0s; /* 遅延は不要なので0sに設定 */
 }
-.satoponSpin {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  font-weight: 800;
-  font-size: 2.5rem;
-  color: white;
-  animation: satopon-spin 1s linear infinite;
-  user-select: none;
-  pointer-events: none;
-  letter-spacing: 0.06em;
-  filter: drop-shadow(0 0 18px #facc15cc);
-}
-@keyframes satopon-spin {
-  0% { transform: translate(-50%, -50%) rotate(0deg);}
-  100% { transform: translate(-50%, -50%) rotate(360deg);}
-}
-.coin {
-  position: absolute;
-  top: -80px;
-  z-index: 10;
-  pointer-events: none;
-  filter: drop-shadow(0 0 32px #facc1577);
-  will-change: top, opacity, transform;
-  opacity: 1;
-}
-@keyframes coin-drop {
+
+@keyframes shrinkFadeOut {
   0% {
-    top: -80px;
-    opacity: 0.95;
-    transform: rotateZ(var(--angle, 12deg)) scale(1.05);
-  }
-  15% {
-    opacity: 1;
-  }
-  85% {
-    transform: rotateZ(var(--angle, 18deg)) scale(0.98);
+    transform: scale(1);
     opacity: 1;
   }
   100% {
-    top: 94vh;
-    opacity: 0.77;
-    transform: rotateZ(var(--angle, 24deg)) scale(0.97);
+    transform: scale(0.5);
+    opacity: 0;
   }
 }
+
+.satoChar {
+  display: inline-block;
+  opacity: 0;
+  transform: rotateY(180deg) scale(0.5);
+  animation-fill-mode: backwards;
+}
+
+/* Character appearance animation */
+.charAppear {
+  animation: charEnter 0.7s cubic-bezier(0.68, -0.55, 0.27, 1.55) forwards;
+  /* animation-delay はJS側で設定するので、ここでは不要 */
+}
+
+@keyframes charEnter {
+  0% {
+    opacity: 0;
+    transform: rotateY(180deg) translateY(50px) scale(0.5);
+  }
+  100% {
+    opacity: 1;
+    transform: rotateY(0deg) translateY(0) scale(1);
+  }
+}
+
+/* Media Queries for smaller screens */
+/* 現在のコンポーネントでは使用されていないため、必要であれば適用してください */
+/*
+@media (max-width: 768px) {
+  .satoContainer {
+    font-size: 5em;
+  }
+}
+
+@media (max-width: 480px) {
+  .satoContainer {
+    font-size: 3em;
+    gap: 0.05em;
+  }
+}
+*/
+
+

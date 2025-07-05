@@ -25,17 +25,13 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* globals.css */
-/* globals.css */
 .material-symbols-outlined {
   font-variation-settings:
     'FILL' 0,
     'wght' 400,
     'GRAD' 0,
     'opsz' 24;
-  /* 必要に応じて調整してください */
 }
-/* スクロールバー非表示 */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
@@ -64,7 +60,6 @@ body {
 
 @layer utilities {
   .animate-slide-in-right {
-    /* 初期状態で完全に透明に */
     opacity: 0;
     /* アニメーション再生後は最終状態を保持 */
     animation: slide-in-right 0.3s ease-out forwards;
@@ -206,7 +201,6 @@ hr { margin: 2rem 0; }
   }
 }
 
-/* Tailwind CSS カスタムクラス */
 .animate-fade-in {
   animation: fade-in 0.3s ease-out;
 }
