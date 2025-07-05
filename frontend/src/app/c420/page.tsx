@@ -32,7 +32,7 @@ export default function DashboardPage() {
   const [roomModalTab, setRoomModalTab] = useState<
   "joined" | "created" | "all"
   >("joined");
-
+const [initializing, setInitializing] = useState(true);
   const {
     wsReady,
     subscribePresence,
@@ -43,39 +43,45 @@ export default function DashboardPage() {
 
 
   // New logic to handle Firebase auth state and user setup
-  useEffect(() => {
+ useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
+      if (!user) {
+        router.replace("/");
+        return;
+      }
+      try {
         const idToken = await user.getIdToken();
         setToken(idToken);
 
+        // 既存ユーザー API 取得
         try {
           const appUser = await api.getMe(idToken);
           setMe(appUser);
-        } catch (error) {
-          try {
-            const newUser = await api.createUser(idToken, {
-              display_name: user.displayName || user.email!.split("@")[0],
-              email: user.email!,
-              icon_url: user.photoURL ?? "",
-            });
-            setMe(newUser);
-          } catch (creationError) {
-            console.error("Failed to create user:", creationError);
-          }
+        } catch {
+          // ユーザーが存在しなければ作成
+          const newUser = await api.createUser(idToken, {
+            display_name: user.displayName || user.email!.split("@")[0],
+            email: user.email!,
+            icon_url: user.photoURL ?? "",
+          });
+          setMe(newUser);
         }
-      } else {
-        // User is signed out.
-        setToken(null);
-        setMe(null);
-        router.replace("/");
+      } catch (err) {
+        console.error("ユーザー情報の取得・作成に失敗", err);
+      } finally {
+        // 認証まわりの初期化は一度だけ
+        setInitializing(false);
       }
     });
 
-    // Cleanup subscription on unmount
     return () => unsubscribe();
   }, [router]);
-
+  useEffect(() => {
+    if (showProfileModal) {
+      setEditedName(me?.display_name || "");
+      setIsEditingName(false);
+    }
+  }, [showProfileModal, me?.display_name]);
   useEffect(() => {
     const off = onEvent((ev) => {
       switch (ev.type) {
@@ -135,6 +141,16 @@ export default function DashboardPage() {
     (r) => !rooms.some((x) => x.room_id === r.room_id),
   );
 
+if (initializing) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+        <p className="text-gray-400">Loading…</p>
+        </div>
+        </div>
+      );
+  }
     if (!token || !me)
       return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
@@ -546,17 +562,20 @@ export default function DashboardPage() {
             />
             <div className="flex justify-center space-x-4">
             <button
-            onClick={async () => {
-              if (!editedName.trim()) {
-                alert("表示名を入力してください");
-                return;
-              }
-              await api.updateMe(token, {
-                display_name: editedName.trim(),
-              });
-              setMe({ ...me, display_name: editedName.trim() });
-              setIsEditingName(false);
-            }}
+              onClick={async () => {
+                const trimmed = editedName.trim();
+               if (trimmed === me.display_name) {
+                  setIsEditingName(false);
+                  return;
+                }
+                if (!trimmed) {
+                 alert("表示名を入力してください");
+                  return;
+                }
+                await api.updateMe(token, { display_name: trimmed });
+                setMe({ ...me, display_name: trimmed });
+                setIsEditingName(false);
+              }}
             className="text-green-400 hover:text-green-300 transition-colors"
             title="Save"
             >
