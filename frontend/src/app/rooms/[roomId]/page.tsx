@@ -32,8 +32,7 @@ type PendingRequest =
       const [historyType, setHistoryType] = useState<"PON" | "SATO">("PON");
       const [balances, setBalances] = useState<Record<string, number>>({});
 
-const [joinQueue, setJoinQueue] = useState<string[]>([]);
-const [currentRequest, setCurrentRequest] = useState<string | null>(null);
+  const [joinQueue, setJoinQueue] = useState<string[]>([]);
       const [isRoundActive, setIsRoundActive] = useState(false);
       const [currentRoundId, setCurrentRoundId] = useState<string | null>(null);
       const [submittedBy, setSubmittedBy] = useState<Set<string>>(new Set());
@@ -146,35 +145,11 @@ useEffect(() => {
        setJoinQueue(roomData.pending_members?.map((m: any) => m.uid) || []);
        dequeueNext(); 
     } catch {
-      alert("データの取得に失敗しました。");
     }
   })();
 }, [token, roomId, msg]);
-//useEffect(() => {
-//  // currentRequest が null かつキューに残りがあれば atomic に次を取り出す
-//  if (currentRequest === null && joinQueue.length > 0) {
-//    setJoinQueue(prev => {
-//      const [next, ...rest] = prev;
-//      setCurrentRequest(next);   // 同じ更新の中で次の申請者をセット
-//      return rest;
-//    });
-//  }
-//}, [currentRequest, joinQueue.length]);  // joinQueue の長さだけを依存に
-//
 
 // ファイル先頭の state 群のすぐあとに追加
-const dequeueNext = () =>
-  setJoinQueue(prev => {
-    if (prev.length === 0) {
-      setCurrentRequest(null);
-      return prev;            // キュー空
-    }
-    // 先頭を currentRequest にして残りを返す
-    const [next, ...rest] = prev;
-    setCurrentRequest(next);
-    return rest;
-  });
-
                                                  // 入退室管理
                                                  useEffect(() => {
                                                    if (!wsReady || !roomId) return;
@@ -216,28 +191,17 @@ const dequeueNext = () =>
                                                      switch (ev.type) {
                                                        // 参加申請
  case "join_request":
-        setJoinQueue(q => [...q, ev.applicant_uid]);
- if (currentRequest === null) dequeueNext();
-        break;
+  setJoinQueue(q => [...q, ev.applicant_uid]);
+  break;
 
-      // 承認／拒否が行われたとき
-      case "join_approved":
-      case "join_rejected":
-        // キューから除外
-        setJoinQueue(q => q.filter(uid => uid !== ev.applicant_uid));
-        // 今表示しているモーダルがこの申請なら閉じる
-        setCurrentRequest(curr =>curr === ev.applicant_uid ? null : curr);
-        dequeueNext();
-        break;
+ case "join_approved":
+ case "join_rejected":
+  setJoinQueue(q => q.filter(uid => uid !== ev.applicant_uid));
+  break;
 
-      // 申請者がキャンセルしたときも同じ
-      case "join_request_cancelled":
-        setJoinQueue(q => q.filter(uid => uid !== ev.user_id));
-        setCurrentRequest(curr =>
-          curr === ev.user_id ? null : curr
-        );
-        dequeueNext();
-        break;
+ case "join_request_cancelled":
+  setJoinQueue(q => q.filter(uid => uid !== ev.user_id));
+  break;
                                                        case "point_round_started":
                                                        setShowPointModal(true);
                                                        setIsRoundActive(true);
@@ -318,8 +282,7 @@ const dequeueNext = () =>
      console.error(`${action} に失敗:`, e);
      if (action === "approve") alert("承認に失敗しました");
    } finally {
-    // ① currentRequest を null にする
-dequeueNext();
+     setJoinQueue(q => q.filter(u => u !== uid));
    }
  };
                                                  const handleDeleteRoom = async () => {
@@ -1400,74 +1363,64 @@ dequeueNext();
         </div>
       )}
 
- {currentRequest && (
-        <div className="fixed inset-0 bg-gradient-to-br from-black/70 via-black/60 to-blue-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
-          <div className="w-full max-w-md bg-gradient-to-br from-gray-900/95 via-gray-800/85 to-gray-900/95 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
-            {/* 装飾 */}
-            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-400/10 to-transparent rounded-full blur-2xl" />
-            <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-green-500/10 to-transparent rounded-full blur-xl" />
+{joinQueue.length > 0 && (
+  <div className="fixed inset-0 bg-gradient-to-br from-black/70 via-black/60 to-blue-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
+    <div className="relative w-full max-w-lg bg-gradient-to-br from-gray-900/95 via-gray-800/85 to-gray-900/95 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl overflow-hidden animate-scale-up">
+      {/* 背景装飾 */}
+      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-400/10 to-transparent rounded-full blur-2xl" />
+      <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-green-500/10 to-transparent rounded-full blur-xl" />
 
-            <div className="relative z-10">
-              {/* ヘッダー */}
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-                  <span className="material-symbols-outlined text-white text-2xl">
-                    person_add
-                  </span>
-                </div>
-                <h2 className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-                  Join Request
-                </h2>
-              </div>
+      <h2 className="relative z-10 text-2xl font-bold text-white mb-6 flex items-center gap-2">
+        <span className="material-symbols-outlined text-blue-400">person_add</span>
+        Join Requests
+      </h2>
 
-              {/* ユーザー情報 */}
-              {(() => {
-                const info = userMap[currentRequest] || {
-                  display_name: currentRequest,
-                  icon_url: undefined
-                };
-                return (
-                  <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30 text-center">
-                    {info.icon_url ? (
-                      <img
-                        src={info.icon_url}
-                        alt={info.display_name}
-                        className="w-16 h-16 rounded-full mx-auto mb-2 object-cover"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-full bg-gray-700 mx-auto mb-2 flex items-center justify-center text-white text-2xl">
-                        {info.display_name.charAt(0)}
-                      </div>
-                    )}
-                    <p className="text-white font-bold text-lg">
-                      {info.display_name}
-                    </p>
+      <ul className="relative z-10 space-y-4 max-h-80 overflow-y-auto">
+        {joinQueue.map(uid => {
+          const info = userMap[uid] || { display_name: uid, icon_url: undefined };
+          return (
+            <li key={uid} className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-2xl p-4">
+              <div className="flex items-center gap-3">
+                {info.icon_url ? (
+                  <img
+                    src={info.icon_url}
+                    alt={info.display_name}
+                    className="w-12 h-12 rounded-full object-cover shadow-lg flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-gray-700 flex-shrink-0 flex items-center justify-center text-xl text-white shadow-lg">
+                    {info.display_name.charAt(0).toUpperCase()}
                   </div>
-                );
-              })()}
-
-              {/* ボタン */}
+                )}
+                <span className="text-white font-medium truncate max-w-[6rem]">
+                  {info.display_name}
+                </span>
+              </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => handleDecision("reject", currentRequest)}
-                  className="flex-1 py-4 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg"
+                  onClick={() => handleDecision("reject", uid)}
+                  className="px-4 py-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 rounded-2xl text-white font-semibold transition-transform hover:scale-[1.02]"
                 >
-                  <span className="material-symbols-outlined">block</span>
-                  Reject
+                  <span className="material-symbols-outlined align-middle">block</span>
+                  <span className="ml-1">Reject</span>
                 </button>
                 <button
-                  onClick={() => handleDecision("approve", currentRequest)}
-                  className="flex-1 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-2xl font-semibold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg"
+                  onClick={() => handleDecision("approve", uid)}
+                  className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 rounded-2xl text-white font-semibold transition-transform hover:scale-[1.02]"
                 >
-                  <span className="material-symbols-outlined">check_circle</span>
-                  Approve
+                  <span className="material-symbols-outlined align-middle">check_circle</span>
+                  <span className="ml-1">Approve</span>
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-                                                       {/* 精算リクエスト承認モーダル */}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  </div>
+)}
+
+{/* 精算リクエスト承認モーダル */}
                                                        {pendingReq && (
                                                          <div className="fixed inset-0 bg-gradient-to-br from-black/70 via-black/60 to-blue-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
                                                          <div className="w-full max-w-md bg-gradient-to-br from-gray-900/95 via-gray-800/85 to-gray-900/95 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
