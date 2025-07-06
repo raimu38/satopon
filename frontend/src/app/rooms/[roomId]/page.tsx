@@ -25,7 +25,6 @@ export default function RoomPage() {
   const [showApprovalSuccess, setShowApprovalSuccess] = useState(false);
   const [historyType, setHistoryType] = useState<"PON" | "SATO">("PON");
   const [balances, setBalances] = useState<Record<string, number>>({});
-
   const [joinQueue, setJoinQueue] = useState<string[]>([]);
   const [isRoundActive, setIsRoundActive] = useState(false);
   const [currentRoundId, setCurrentRoundId] = useState<string | null>(null);
@@ -547,74 +546,6 @@ export default function RoomPage() {
           </div>
 
           {/* 待機中のリクエスト */}
-          {/* Pending Join Requests */}
-          {joinQueue.length > 0 && (
-            <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
-              {/* header */}
-              <h3 className="flex items-center gap-2 text-lg font-bold text-amber-400 mb-3">
-                <span className="material-symbols-outlined">
-                  notification_important
-                </span>
-                Join Requests ({joinQueue.length})
-              </h3>
-              {/* list */}
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {joinQueue.map((uid) => {
-                  const user = userMap[uid] || { display_name: uid };
-                  const online = ctxOnlineUsers[roomId]?.has(uid);
-                  return (
-                    <div
-                      key={uid}
-                      className="flex items-center justify-between bg-gray-800/50 hover:bg-gray-800/70 rounded-xl p-3 transition-colors"
-                    >
-                      {/* user info */}
-                      <div className="flex items-center gap-3">
-                        {/* online indicator */}
-                        <span
-                          className={`w-3 h-3 rounded-full border-2 border-gray-800 ${
-                            online ? "bg-green-400" : "bg-gray-600"
-                          }`}
-                          title={online ? "Online" : "Offline"}
-                        />
-                        {/* avatar */}
-                        {user.icon_url ? (
-                          <img
-                            src={user.icon_url}
-                            alt={user.display_name}
-                            className="w-10 h-10 rounded-full object-cover shadow-lg"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold text-white shadow-lg">
-                            {user.display_name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        {/* name */}
-                        <span className="font-medium text-white truncate">
-                          {user.display_name}
-                        </span>
-                      </div>
-                      {/* actions */}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleDecision("approve", uid)}
-                          className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() => handleDecision("reject", uid)}
-                          className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Members*/}
           {/* Leaderboard as Members (section and cards) */}
           <section>
@@ -715,7 +646,7 @@ export default function RoomPage() {
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg">
                     <span className="material-symbols-outlined text-white text-xl">
-                    leaderboard
+                      leaderboard
                     </span>
                   </div>
                   <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent tracking-wide">
@@ -1115,7 +1046,7 @@ export default function RoomPage() {
                             <div className="flex items-center gap-2">
                               <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                                 <span className="material-symbols-outlined text-white text-sm">
-                                payments
+                                  payments
                                 </span>
                               </div>
                               <span className="text-sm font-mono text-blue-300 font-semibold">
@@ -1780,6 +1711,98 @@ export default function RoomPage() {
                   sato from your balance to {pendingReq.from_uid}
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {joinQueue.length > 0 && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 animate-fade-in p-4">
+          <div className="w-full max-w-lg bg-gradient-to-br from-gray-900 via-gray-800 to-gray-700 rounded-3xl p-6 border border-gray-700/50 shadow-2xl transform animate-scale-up">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="flex items-center gap-3 text-2xl font-bold text-amber-400">
+                <span className="material-symbols-outlined text-3xl">
+                  notification_important
+                </span>
+                Join Requests
+              </h3>
+            </div>
+
+            {/* List */}
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+              {" "}
+              {/* pr-2でスクロールバーのスペースを確保 */}
+              {joinQueue.map((uid) => {
+                const user = userMap[uid] || {
+                  display_name: uid,
+                  icon_url: "",
+                };
+                const online = ctxOnlineUsers[roomId]?.has(uid);
+                return (
+                  <div
+                    key={uid}
+                    className="flex items-center justify-between bg-gray-800/60 border border-gray-700/50 rounded-xl p-4 transition-all duration-200 hover:bg-gray-700/70 shadow-md"
+                  >
+                    {/* User Info */}
+                    <div className="flex items-center gap-4 min-w-0 flex-grow">
+                      {" "}
+                      {/* flex-growを追加してテキストがスペースを埋めるように */}
+                      <div className="relative flex-shrink-0">
+                        {user.icon_url ? (
+                          <img
+                            src={user.icon_url}
+                            alt={user.display_name}
+                            className="w-12 h-12 rounded-full object-cover shadow-lg border border-gray-600"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center text-lg font-bold text-white shadow-lg border border-gray-600">
+                            {user.display_name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <span
+                          className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-gray-900 ${
+                            // border-gray-900に調整
+                            online ? "bg-green-400" : "bg-gray-500"
+                          }`}
+                          title={online ? "Online" : "Offline"}
+                        />
+                      </div>
+                      <span className="font-semibold text-xl text-white truncate leading-tight">
+                        {" "}
+                        {/* text-xlに上げて、truncateを確保 */}
+                        {user.display_name}
+                      </span>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-3 flex-shrink-0 ml-4">
+                      {" "}
+                      {/* ml-4で少しマージンを追加 */}
+                      <button
+                        onClick={() => handleDecision("reject", uid)}
+                        className="flex items-center justify-center px-4 py-2 bg-rose-700/40 hover:bg-rose-700/60 text-rose-300 rounded-lg text-sm font-medium transition-colors duration-200 border border-rose-600/50 shadow-sm hover:shadow-md"
+                        title="Reject Request"
+                      >
+                        <span className="material-symbols-outlined text-base mr-1">
+                          cancel
+                        </span>
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => handleDecision("approve", uid)}
+                        className="flex items-center justify-center px-4 py-2 bg-teal-700/40 hover:bg-teal-700/60 text-teal-300 rounded-lg text-sm font-medium transition-colors duration-200 border border-teal-600/50 shadow-sm hover:shadow-md"
+                        title="Accept Request"
+                      >
+                        <span className="material-symbols-outlined text-base mr-1">
+                          check_circle
+                        </span>
+                        Accept
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
