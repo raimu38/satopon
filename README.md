@@ -1,9 +1,7 @@
-````markdown
 # Satopon
 
 A real-time, multiplayer “PON” & “SATO” point-settling game built on Next.js, React, Tailwind CSS and Firebase.  Players join rooms, award “PON” points in quick rounds, settle debts in “SATO”, track leaderboards, and view their personal point history.
 
----
 
 ## 🚀 Features
 

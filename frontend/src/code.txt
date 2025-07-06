@@ -30,11 +30,15 @@ export default function DashboardPage() {
   // Modal states
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showPointHistoryModal, setShowPointHistoryModal] = useState(false);
+  const [userPointHistory, setUserPointHistory] = useState<any[]>([]);
   const [roomModalTab, setRoomModalTab] = useState<
-  "joined" | "created" | "all"
+    "joined" | "created" | "all"
   >("joined");
-const [initializing, setInitializing] = useState(true);
+  const [initializing, setInitializing] = useState(true);
   const {
     wsReady,
     subscribePresence,
@@ -43,9 +47,20 @@ const [initializing, setInitializing] = useState(true);
     onEvent,
   } = usePresence();
 
-
+  useEffect(() => {
+    if (token) {
+      api
+        .getUserPointHistory(token)
+        .then((history) => {
+          console.log("User Point History:", history);
+        })
+        .catch((error) => {
+          console.error("Failed to fetch user point history:", error);
+        });
+    }
+  }, [token]); // token が変更された時にこの処理が実行されます
   // New logic to handle Firebase auth state and user setup
- useEffect(() => {
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.replace("/");
@@ -88,13 +103,13 @@ const [initializing, setInitializing] = useState(true);
     const off = onEvent((ev) => {
       switch (ev.type) {
         case "user_entered":
-          case "user_left":
-          case "join_request":
-          case "join_request_cancelled":
-          case "join_rejected":
-          case "join_approved":
+        case "user_left":
+        case "join_request":
+        case "join_request_cancelled":
+        case "join_rejected":
+        case "join_approved":
           setMsg((m) => m + "x");
-        break;
+          break;
         default:
           break;
       }
@@ -121,17 +136,18 @@ const [initializing, setInitializing] = useState(true);
 
   const handleCreateRoom = async () => {
     if (!newRoom.name) {
-      alert("ルーム名を入力してください");
+      setFormError("ルーム名を入力してください");
       return;
     }
     if (newRoom.name.length > 20) {
-      alert("ルーム名は20文字以内で入力してください");
+      setFormError("ルーム名は20文字以内で入力してください");
       return;
     }
     if (newRoom.description.length > 100) {
-      alert("説明は100文字以内で入力してください");
+      setFormError("説明は100文字以内で入力してください");
       return;
     }
+    setFormError(null);
     await api.createRoom(token, newRoom);
     setNewRoom({ name: "", description: "" });
     setShowCreateModal(false);
@@ -141,566 +157,651 @@ const [initializing, setInitializing] = useState(true);
   const myRooms = rooms.filter((r) => r.created_by === me?.uid);
   const joinedRooms = rooms;
   const availableRooms = allRooms.filter(
-    (r) => !rooms.some((x) => x.room_id === r.room_id),
+    (r) => !rooms.some((x) => x.room_id === r.room_id)
   );
 
-if (initializing) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+  if (initializing) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
         <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
-        <p className="text-gray-400">Loading…</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading…</p>
         </div>
-        </div>
-      );
+      </div>
+    );
   }
-    if (!token || !me)
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+  if (!token || !me)
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
         <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
-        <p className="text-gray-400">Loading…</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading…</p>
         </div>
-        </div>
-      );
+      </div>
+    );
 
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-gray-100">
-        {/* Header */}
-        <header
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-gray-100">
+      {/* Header */}
+      <header
         className={`relative backdrop-blur-lg bg-gray-900/60 border-b border-gray-700/40 ${styles.headerBackground}`}
-        >
+      >
         <div className="max-w-7xl  mx-auto px-6 py-4">
-        <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-        <div>
-        <h1 className="text-xl font-bold text-white bg-clip-text text-transparent">
-        SATOPON
-        </h1>
-        {!wsReady && (
-          <p className="text-xs text-yellow-400 animate-pulse">
-          Connecting…
-          </p>
-        )}
-        </div>
-        </div>
+          <div className="flex justify-between items-center">
+            {/* 左側: SATOPON ロゴと status */}
+            <div className="flex items-center space-x-4">
+              <Link
+                href="https://sites.google.com/view/jsato/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <h1 className="text-xl font-bold text-white bg-clip-text text-transparent cursor-pointer hover:underline">
+                  SATOPON
+                </h1>
+              </Link>
+              {!wsReady && (
+                <p className="text-xs text-yellow-400 animate-pulse">
+                  Connecting…
+                </p>
+              )}
+            </div>
 
-        {/* Profile Avatar */}
-        <div className="relative">
-        <button
-        onClick={() => setShowProfileModal(true)}
-        className="w-10 h-10 rounded-full   overflow-hidden border-2 border-gray-600 hover:border-gray-800 transition-all duration-700 "
-        >
-        {me.icon_url ? (
-          <img
-          src={me.icon_url}
-          alt={me.display_name}
-          className="w-full h-full object-cover"
-          />
-        ) : (
-        <div className="w-full h-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
-        {me.display_name?.charAt(0).toUpperCase()}
-        </div>
-        )}
-        </button>
-        </div>
-        </div>
-        </div>
-        </header>
+            {/* 右側: GitHub + Avatar */}
+            <div className="flex items-center space-x-4">
+              {/* GitHub */}
+              <Link
+                href="https://github.com/raimu38/satopon"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gray-400 hover:text-white transition"
+                title="View source on GitHub"
+              >
+                <span className="material-symbols-outlined text-[24px]">
+                  code
+                </span>
+              </Link>
 
-        {/* Main Content */}
-        <main className="max-w-3xl mx-auto px-6 py-8 min-h-[80vh] flex flex-col justify-center">
+              {/* Avatar */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowProfileModal(true)}
+                  className="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-600 hover:border-gray-800 transition-all duration-700"
+                >
+                  {me.icon_url ? (
+                    <img
+                      src={me.icon_url}
+                      alt={me.display_name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold">
+                      {me.display_name?.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-3xl mx-auto px-6 py-8 min-h-[80vh] flex flex-col justify-center">
         <header className="mb-8 text-center">
-        <h1 className="text-3xl font-bold text-white">Home</h1>
+          <h1 className="text-3xl font-bold text-white">Home</h1>
         </header>
 
         <div className="grid grid-cols-1 gap-6 h-full">
-        <div
-        onClick={() => setShowRoomModal(true)}
-        className="group cursor-pointer bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-lg rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all duration-300 hover:scale-101 hover:shadow-2xl hover:shadow-blue-500/20 h-full flex flex-col justify-between"
-        >
-        {/* 通知バッジ */}
-        {rooms.some((r) => r.pending_members?.length > 0) && (
-          <div className="absolute top-4 right-4 flex items-center space-x-1">
-          <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
-          <span className="text-yellow-400 text-xs font-medium">
-          Request
-          </span>
-          </div>
-        )}
-        <div>
-        <div className="flex items-center space-x-4 mb-4">
-        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center group-hover:scale-101 transition-transform duration-300">
-        <span className="material-symbols-outlined text-white text-[28px]">
-        meeting_room
-        </span>
-        </div>
-        <div>
-        <h3 className="text-lg font-semibold text-white">
-        Room List
-        </h3>
-        <p className="text-gray-400 text-sm">
-        Browse and manage rooms
-        </p>
-        </div>
-        </div>
-        </div>
-        <div className="flex items-center justify-between">
-        <span className="text-2xl font-bold text-blue-400">
-        {rooms.length}
-        </span>
-        <span className="text-gray-400 text-sm">Joined Rooms</span>
-        </div>
-        </div>
-        </div>
-        </main>
-
-        {/* Room Modal */}
-        {showRoomModal && (
-<div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
-  <div className="w-full h-full max-w-full rounded-none overflow-hidden bg-gray-900/95 border border-gray-700/50 shadow-2xl
-                  sm:rounded-2xl sm:max-w-[95%] sm:h-[95vh] lg:max-w-4xl lg:h-[90vh]">
-          <div className="max-w-4xl w-full h-full flex flex-col">
-          <div className="p-6 border-b border-gray-600">
-          <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-white">SATOPON</h2>
-          <button
-          onClick={() => setShowRoomModal(false)}
-          className="w-8 h-8 hover:bg-gray-800/90 rounded-full flex items-center justify-center transition-colors"
-          title="Close"
+          <div
+            onClick={() => setShowRoomModal(true)}
+            className="group cursor-pointer bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-lg rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all duration-300 hover:scale-101 hover:shadow-2xl hover:shadow-blue-500/20 h-full flex flex-col justify-between"
           >
-          <span className="material-symbols-outlined text-white text-[20px]">
-          close
-          </span>
-          </button>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex space-x-3  ">
-          {[
-            { key: "joined", label: `Joined (${joinedRooms.length})` },
-            { key: "all", label: `Rooms (${availableRooms.length})` },
-          ].map((tab) => (
-            <button
-            key={tab.key}
-            onClick={() =>
-              setRoomModalTab(tab.key as typeof roomModalTab)
-            }
-            className={`
-              px-4 py-2 rounded-md text-sm font-medium
-              transition-colors duration-300 ease-in-out
-              ${
-                roomModalTab === tab.key
-                  ? "bg-gray-700/80 text-white"
-                  : "text-gray-400 hover:text-white hover:bg-gray-700/40"
-              }
-              `}
-              >
-              {tab.label}
-              </button>
-          ))}
-          </div>
-          </div>
-
-          <div className="p-6 overflow-y-auto h-full flex-1  scrollbar-hide">
-          {roomModalTab === "joined" && (
-            <div className="space-y-3 max-w-2xl mx-auto">
-            {joinedRooms.map((r) => {
-              const count = onlineUsers[r.room_id]?.size ?? 0;
-              const hasPending = r.pending_members?.length > 0;
-              const isOwner = r.created_by === me.uid;
-              return (
-                <Link
-                key={r.room_id}
-                href={`/rooms/${r.room_id}`}
-                className={`
-                  block p-4 rounded-xl transition-colors border w-full
-                  ${isOwner ? "border-blue-400/30 bg-blue-400/10 hover:bg-blue-400/20" : "border-gray-600/50 hover:bg-gray-600/50"}
-                  `}
-                  >
-                  <div className="flex justify-between items-center">
-                  <div className="flex items-center space-x-3">
-                  {/* アイコン */}
-                  <div className="w-9 h-9 bg-gray-600/60 rounded-full flex items-center justify-center">
-                  <span className="text-gray-200 font-semibold text-sm">
-                  {r.name.charAt(0)}
+            {/* 通知バッジ */}
+            {rooms.some((r) => r.pending_members?.length > 0) && (
+              <div className="absolute top-4 right-4 flex items-center space-x-1">
+                <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
+                <span className="text-yellow-400 text-xs font-medium">
+                  Request
+                </span>
+              </div>
+            )}
+            <div>
+              <div className="flex items-center space-x-4 mb-4">
+                <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center group-hover:scale-101 transition-transform duration-300">
+                  <span className="material-symbols-outlined text-white text-[28px]">
+                    meeting_room
                   </span>
-                  </div>
-                  <div>
-                  <h3 className="font-medium text-white flex items-center gap-1">
-                  <span>{r.name}</span>
-                  {isOwner && (
-                    <span
-                    className="material-symbols-outlined text-blue-300 text-[18px] opacity-70 hover:opacity-100 transition-opacity"
-                    title="Owner"
-                    >
-                    shield_person
-                    </span>
-                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">
+                    Room List
                   </h3>
                   <p className="text-gray-400 text-sm">
-                  ID: {r.room_id}
+                    Browse and manage rooms
                   </p>
-                  </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                  {hasPending && (
-                    <div className="flex items-center space-x-1">
-                    <div
-                    className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"
-                    title="Request"
-                    ></div>
-                    <span className="text-yellow-400 text-sm font-medium">
-                    Join Request
-                    </span>
-                    </div>
-                  )}
-                  {count > 0 && (
-                    <div className="flex items-center space-x-1">
-                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                    <span className="text-green-400 text-sm">
-                    {count}
-                    </span>
-                    </div>
-                  )}
-                  </div>
-                  </div>
-                  </Link>
-              );
-            })}
-            {joinedRooms.length === 0 && (
-              <p className="text-gray-500 text-center py-8">
-              No Joined Room. Let's Join!
-              </p>
-            )}
+                </div>
+              </div>
             </div>
-          )}
-
-          {roomModalTab === "all" && (
-            <div className="space-y-3 max-w-2xl mx-auto">
-            {availableRooms.map((r) => {
-              const pending = r.pending_members?.some(
-                (m: any) => m.uid === me.uid,
-              );
-                return (
-                  <div
-                  key={r.room_id}
-                  className="p-4 bg-gray-700/50 rounded-xl border border-gray-600/50"
-                  >
-                  <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-600 text-white text-lg font-semibold">
-                  {r.name.charAt(0)}
-                  </div>
-                  <div className="space-y-0.5">
-                  <h3 className="text-white font-semibold text-base">
-                  {r.name}
-                  </h3>
-                  <p className="text-gray-500 text-xs">
-                  ID: {r.room_id}
-                  </p>
-                  </div>
-                  </div>
-                  {pending ? (
-                    <button
-                    onClick={async () => {
-                      await api.cancelJoinRequest(token, r.room_id);
-                      setMsg("cancel-req");
-                    }}
-                    title="Cancel Request"
-                    >
-                    <span
-                    className={`
-                      material-symbols-outlined text-[22px] 
-                      text-yellow-400 hover:text-yellow-300 
-                      transition-colors duration-300
-                      animate-pulse
-                      `}
-                      >
-                      radio_button_checked
-                      </span>
-                      </button>
-                  ) : (
-                  <button
-                  onClick={async () => {
-                    await api.joinRoom(token, r.room_id);
-                    setMsg("join-req");
-                  }}
-                  title="Request to Join"
-                  >
-                  <span
-                  className={`
-                    material-symbols-outlined text-[22px]
-                    text-emerald-400 hover:text-emerald-300 
-                    transition-colors duration-200
-                    `}
-                    >
-                    radio_button_checked
-                    </span>
-                    </button>
-                  )}
-                  </div>
-                  </div>
-                );
-            })}
-            {availableRooms.length === 0 && (
-              <p className="text-gray-500 text-center py-8">No room</p>
-            )}
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold text-blue-400">
+                {rooms.length}
+              </span>
+              <span className="text-gray-400 text-sm">Joined Rooms</span>
             </div>
-          )}
           </div>
-          </div>
-          </div>
-          </div>
-        )}
-
-        {/* Create Room Modal */}
-        {showCreateModal && (
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-md bg-gradient-to-br from-gray-800/60 to-gray-700/50 border border-gray-600/40 rounded-2xl shadow-xl backdrop-blur-xl p-6">
-          <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white">Create New Room</h2>
-          </div>
-
-          <div className="space-y-5">
-          <div>
-          <input
-          type="text"
-          placeholder="Enter room name ※"
-          value={newRoom.name}
-          onChange={(e) =>
-            setNewRoom({ ...newRoom, name: e.target.value })
-          }
-          maxLength={20}
-          className="w-full px-4 py-3 bg-gray-800/60 text-white placeholder-gray-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition"
-          />
-          <p className="text-gray-400 text-xs mt-1">
-          {newRoom.name.length} / 20
-          </p>
-          </div>
-
-          <div>
-          <textarea
-          placeholder="Enter description"
-          value={newRoom.description}
-          onChange={(e) =>
-            setNewRoom({ ...newRoom, description: e.target.value })
-          }
-          maxLength={100}
-          rows={3}
-          className="w-full px-4 py-3 bg-gray-800/60 text-white placeholder-gray-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition resize-none"
-          />
-          <p className="text-gray-400 text-xs mt-1">
-          {newRoom.description.length} / 100
-          </p>
-          </div>
-
-          <div className="flex space-x-3 pt-2">
-          <button
-          onClick={() => setShowCreateModal(false)}
-          className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition"
-          >
-          Cancel
-          </button>
-          <button
-          onClick={handleCreateRoom}
-          className="flex-1 px-4 py-3 bg-green-700 hover:bg-green-600 text-white rounded-md shadow-md hover:shadow-lg transition"
-          >
-          Create Room
-          </button>
-          </div>
-          </div>
-          </div>
-          </div>
-        )}
-
-        {showProfileModal && (
-          <div className="fixed inset-0 bg-black/20  w-full h-screen flex items-center justify-center z-50 ">
-          <div className=" w-full  h-full  backdrop-blur-md">
-          <div className="p-6">
-          {/* 閉じるボタン */}
-          <div className="flex justify-end mb-6">
-          <button
-          onClick={() => setShowProfileModal(false)}
-          className="w-8 h-8  hover:bg-gray-900 rounded-full flex items-center justify-center transition-colors"
-          title="Close"
-          >
-          <span className="material-symbols-outlined text-white text-xl">
-          close
-          </span>
-          </button>
-          </div>
-
-          {/* アバターと名前編集 */}
-          <div className="text-center mb-8">
-          <div
-          onClick={() => setIsEditingName(true)}
-          className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 overflow-hidden border-4 border-gray-600 cursor-pointer hover:bg-gray-900/80 transition-colors duration-700"
-          title="Click to edit display name"
-          >
-          {me.icon_url ? (
-            <img
-            src={me.icon_url}
-            alt={me.display_name}
-            className="w-full h-full object-cover"
-            />
-          ) : (
-          <div className="w-full h-full flex items-center justify-center text-white font-bold text-3xl">
-          {me.display_name?.charAt(0).toUpperCase()}
-          </div>
-          )}
-          </div>
-
-          <div className="mx-auto max-w-4xl greid-col-3 p-4 rounded-xl bg-gradient-to-br from-gray-800/30 to-gray-600/20 backdrop-blur-md shadow-md">
-          {isEditingName ? (
-            <div className="space-y-2">
-            <input
-            type="text"
-            value={editedName}
-            onChange={(e) => setEditedName(e.target.value)}
-            maxLength={50}
-            className="w-full bg-gray-800/70 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors text-center"
-            />
-            <div className="flex justify-center space-x-4">
-            <button
-              onClick={async () => {
-                const trimmed = editedName.trim();
-               if (trimmed === me.display_name) {
-                  setIsEditingName(false);
-                  return;
-                }
-                if (!trimmed) {
-                 alert("表示名を入力してください");
-                  return;
-                }
-                await api.updateMe(token, { display_name: trimmed });
-                setMe({ ...me, display_name: trimmed });
-                setIsEditingName(false);
-              }}
-            className="text-green-400 hover:text-green-300 transition-colors"
-            title="Save"
-            >
-            <span className="material-symbols-outlined text-[28px]">
-            check
-            </span>
-            </button>
-            <button
-            onClick={() => {
-              setEditedName(me.display_name);
-              setIsEditingName(false);
-            }}
-            className="text-gray-400 hover:text-gray-200 transition-colors"
-            title="Cancel"
-            >
-            <span className="material-symbols-outlined text-[28px]">
-            close
-            </span>
-            </button>
-            </div>
-            </div>
-          ) : (
-          <>
-          <h3 className="text-xl font-semibold text-white">
-          {me.display_name}
-          </h3>
-          <p className="text-gray-400 text-sm">{me.email}</p>
-          </>
-          )}
-          </div>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 max-w-4xl mx-auto">
-          {/* Joined */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-blue-800/30 to-blue-600/20 border border-blue-500/20 backdrop-blur-md shadow-md">
-          <div className="flex items-center space-x-3">
-          <span className="material-symbols-outlined text-blue-300 text-2xl">
-          meeting_room
-          </span>
-          <div>
-          <div className="text-xl font-semibold text-white">
-          {rooms.length}
-          </div>
-          <div className="text-sm text-blue-200">Joined Rooms</div>
-          </div>
-          </div>
-          </div>
-
-          {/* Created */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-green-800/30 to-emerald-600/20 border border-green-500/20 backdrop-blur-md shadow-md">
-          <div className="flex items-center space-x-3">
-          <span className="material-symbols-outlined text-green-300 text-2xl">
-          add_box
-          </span>
-          <div>
-          <div className="text-xl font-semibold text-white">
-          {myRooms.length}
-          </div>
-          <div className="text-sm text-green-200">
-          Created Rooms
-          </div>
-          </div>
-          </div>
-          </div>
-
-          {/* Active */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-purple-800/30 to-pink-600/20 border border-purple-500/20 backdrop-blur-md shadow-md">
-          <div className="flex items-center space-x-3">
-          <span className="material-symbols-outlined text-purple-300 text-2xl">
-          visibility
-          </span>
-          <div>
-          <div className="text-xl font-semibold text-white">
-          {Object.values(onlineUsers).reduce(
-            (s, u) => s + u.size,
-              0,
-          )}
-          </div>
-          <div className="text-sm text-purple-200">
-          Active Users
-          </div>
-          </div>
-          </div>
-          </div>
-          </div>
-
-          {/* Logout */}
-          <button
-          onClick={async () => {
-            await signOut(auth);
-            router.replace("/");
-          }}
-          className="w-full max-w-4xl mx-auto px-4 py-2 mt-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-200 hover:text-white text-sm font-medium transition-colors flex items-center justify-center space-x-2"
-          >
-          <span className="material-symbols-outlined text-[20px]">
-          logout
-          </span>
-          <span>Logout</span>
-          </button>
-          </div>
-          </div>
-          </div>
-        )}
-
-        {/* Footer.tsx */}
-        <footer className="fixed bottom-0 inset-x-0 bg-gray-900/90 border-t border-gray-300/20 backdrop-blur-lg z-0">
-        <div className="max-w-lg mx-auto flex justify-between items-center py-2 px-6 text-white relative">
-        {/* Active Users */}
-        <div className="flex items-center space-x-1 text-green-400 text-xs bg-gray-700/30 px-2 py-1 rounded-full backdrop-blur-sm">
-        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-        <span>
-        {Object.values(onlineUsers).reduce(
-          (sum, users) => sum + users.size,
-            0,
-        )}
-        </span>
         </div>
+      </main>
 
-        {/* Center Floating + Button */}
-        <button
-        onClick={() => setShowCreateModal(true)}
-        title="Create Room"
-        className={`
+      {/* Room Modal */}
+      {showRoomModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
+          <div
+            className="w-full h-full max-w-full rounded-none overflow-hidden bg-gray-900/95 border border-gray-700/50 shadow-2xl
+
+                  sm:rounded-2xl sm:max-w-[95%] sm:h-[95vh] lg:max-w-4xl lg:h-[90vh]"
+          >
+            <div className="max-w-4xl w-full h-full flex flex-col">
+              {/* Header */}
+              <div className="p-6 border-b border-gray-700/50 bg-gray-800/30">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-3xl font-bold text-white tracking-wide">
+                    SATOPON
+                  </h2>
+                  <button
+                    onClick={() => setShowRoomModal(false)}
+                    className="w-10 h-10 hover:bg-gray-700/60 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-105"
+                    title="Close"
+                  >
+                    <span className="material-symbols-outlined text-gray-300 text-[22px]">
+                      close
+                    </span>
+                  </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex space-x-2">
+                  {[
+                    {
+                      key: "joined",
+                      label: `Joined`,
+                      count: joinedRooms.length,
+                    },
+                    {
+                      key: "all",
+                      label: `All Rooms`,
+                      count: availableRooms.length,
+                    },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() =>
+                        setRoomModalTab(tab.key as typeof roomModalTab)
+                      }
+                      className={`
+                        relative px-6 py-3 rounded-lg text-sm font-medium
+                        transition-all duration-300 ease-out
+                        ${
+                          roomModalTab === tab.key
+                            ? "bg-gray-700/80 text-white shadow-lg"
+                            : "text-gray-400 hover:text-white hover:bg-gray-700/40"
+                        }
+                      `}
+                    >
+                      <span className="relative z-10">{tab.label}</span>
+                      {tab.count > 0 && (
+                        <span
+                          className={`
+                          ml-2 px-2 py-0.5 text-xs rounded-full
+                          ${
+                            roomModalTab === tab.key
+                              ? "bg-blue-500/30 text-blue-200"
+                              : "bg-gray-600/50 text-gray-300"
+                          }
+                        `}
+                        >
+                          {tab.count}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* content */}
+              <div className="p-6 overflow-y-auto h-full flex-1 scrollbar-hide">
+                {roomModalTab === "joined" && (
+                  <div className="space-y-4 max-w-3xl mx-auto">
+                    {joinedRooms.map((r) => {
+                      const count = onlineUsers[r.room_id]?.size ?? 0;
+                      const hasPending = r.pending_members?.length > 0;
+                      const isOwner = r.created_by === me.uid;
+
+                      return (
+                        <Link
+                          key={r.room_id}
+                          href={`/rooms/${r.room_id}`}
+                          className={`
+              group block p-5 rounded-xl transition-all duration-300 border
+              hover:scale-[1.02] hover:shadow-lg
+              ${
+                isOwner
+                  ? "border-blue-400/40 bg-gradient-to-r from-blue-500/10 to-blue-600/5 hover:from-blue-500/15 hover:to-blue-600/10"
+                  : "border-gray-600/40 bg-gray-800/30 hover:bg-gray-700/40"
+              }
+            `}
+                        >
+                          <div className="flex justify-between items-start">
+                            {/* 左側：アイコン＋名前 */}
+                            <div className="flex items-center space-x-4">
+                              <div
+                                className={`
+                  w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg
+                  ${
+                    isOwner
+                      ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg"
+                      : "bg-gradient-to-br from-gray-600 to-gray-700"
+                  }
+                `}
+                              >
+                                {r.name.charAt(0)}
+                              </div>
+                              <div>
+                                <h3 className="font-semibold text-white text-lg sm:text-base">
+                                  {r.name}
+                                </h3>
+                                <div className="flex items-center space-x-2 text-gray-400 text-sm sm:text-xs">
+                                  <span>ID: {r.room_id}</span>
+                                  {isOwner && (
+                                    <span
+                                      className="material-symbols-outlined text-blue-300 text-[18px] opacity-80 group-hover:opacity-100 transition-opacity"
+                                      title="Owner"
+                                    >
+                                      shield_person
+                                    </span>
+                                  )}
+                                  {hasPending && (
+                                    <span className="px-2 py-0.5 rounded-full bg-yellow-400/20 border border-yellow-400/30 text-yellow-300">
+                                      Request
+                                    </span>
+                                  )}
+                                  {count > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-green-400/20 border border-green-400/30 text-green-300">
+                                      {count} Online
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {/* 右側に何か他要素があればここに */}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                    {joinedRooms.length === 0 && (
+                      <div className="text-center py-16">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
+                          <span className="material-symbols-outlined text-gray-400 text-[24px]">
+                            door_open
+                          </span>
+                        </div>
+                        <p className="text-gray-400 text-lg">
+                          No joined rooms yet
+                        </p>
+                        <p className="text-gray-500 text-sm mt-1">
+                          Browse available rooms to get started
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {roomModalTab === "all" && (
+                  <div className="space-y-4 max-w-3xl mx-auto">
+                    {availableRooms.map((r) => {
+                      const pending = r.pending_members?.some(
+                        (m: any) => m.uid === me.uid
+                      );
+
+                      return (
+                        <div
+                          key={r.room_id}
+                          className="p-5 bg-gray-800/40 rounded-xl border border-gray-600/40 hover:bg-gray-700/50 transition-all duration-300"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-br from-gray-600 to-gray-700 text-white text-lg font-bold shadow-lg">
+                                {r.name.charAt(0)}
+                              </div>
+                              <div className="space-y-1">
+                                <h3 className="text-white font-semibold text-lg">
+                                  {r.name}
+                                </h3>
+                                <p className="text-gray-400 text-sm font-mono">
+                                  ID: {r.room_id}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Action Button */}
+                            <div className="flex items-center space-x-3">
+                              {pending ? (
+                                <button
+                                  onClick={async () => {
+                                    await api.cancelJoinRequest(
+                                      token,
+                                      r.room_id
+                                    );
+                                    setMsg("cancel-req");
+                                  }}
+                                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 hover:bg-yellow-500/30 transition-all duration-200 hover:scale-105"
+                                  title="Cancel Request"
+                                >
+                                  <span className="material-symbols-outlined text-yellow-400 text-[20px] animate-pulse">
+                                    pending
+                                  </span>
+                                  <span className="text-yellow-300 text-sm font-medium">
+                                    Pending
+                                  </span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={async () => {
+                                    await api.joinRoom(token, r.room_id);
+                                    setMsg("join-req");
+                                  }}
+                                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all duration-200 hover:scale-105"
+                                  title="Request to Join"
+                                >
+                                  <span className="material-symbols-outlined text-emerald-400 text-[20px]">
+                                    add_circle
+                                  </span>
+                                  <span className="text-emerald-300 text-sm font-medium">
+                                    Join
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {availableRooms.length === 0 && (
+                      <div className="text-center py-16">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
+                          <span className="material-symbols-outlined text-gray-400 text-[24px]">
+                            search_off
+                          </span>
+                        </div>
+                        <p className="text-gray-400 text-lg">
+                          No rooms available
+                        </p>
+                        <p className="text-gray-500 text-sm mt-1">
+                          Check back later for new rooms
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Create Room Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-md bg-gradient-to-br from-gray-800/60 to-gray-700/50 border border-gray-600/40 rounded-2xl shadow-xl backdrop-blur-xl p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-white">Create New Room</h2>
+            </div>
+
+            <div className="space-y-5">
+              <div>
+                <input
+                  type="text"
+                  placeholder="Enter room name ※"
+                  value={newRoom.name}
+                  onChange={(e) => {
+                    setNewRoom({ ...newRoom, name: e.target.value });
+                    setFormError(null);
+                  }}
+                  maxLength={20}
+                  className="w-full px-4 py-3 bg-gray-800/60 text-white placeholder-gray-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition"
+                />
+                <p className="text-gray-400 text-xs mt-1">
+                  {newRoom.name.length} / 20
+                </p>
+              </div>
+
+              <div>
+                <textarea
+                  placeholder="Enter description"
+                  value={newRoom.description}
+                  onChange={(e) => {
+                    setNewRoom({ ...newRoom, description: e.target.value });
+                    setFormError(null);
+                  }}
+                  maxLength={100}
+                  rows={3}
+                  className="w-full px-4 py-3 bg-gray-800/60 text-white placeholder-gray-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition resize-none"
+                />
+                <p className="text-gray-400 text-xs mt-1">
+                  {newRoom.description.length} / 100
+                </p>
+              </div>
+
+              {/* エラーメッセージ */}
+              {formError && <p className="text-red-400 text-sm">{formError}</p>}
+
+              <div className="flex space-x-3 pt-2">
+                <button
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setFormError(null);
+                  }}
+                  className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateRoom}
+                  className="flex-1 px-4 py-3 bg-green-700 hover:bg-green-600 text-white rounded-md shadow-md hover:shadow-lg transition"
+                >
+                  Create Room
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-black/40 w-full h-screen flex items-center justify-center z-50 p-0 sm:p-6 lg:p-8">
+          <div className="relative w-full h-full sm:w-full sm:h-auto sm:max-w-2xl sm:max-h-[90vh] rounded-none sm:rounded-2xl bg-gradient-to-br from-gray-900 to-gray-800 backdrop-blur-xl shadow-2xl flex flex-col">
+            {/* Close Button */}
+            <div className="absolute top-4 right-4 z-10">
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="w-10 h-10 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                title="Close"
+              >
+                <span className="material-symbols-outlined text-white text-2xl">
+                  close
+                </span>
+              </button>
+            </div>
+
+            <div className="p-6 sm:p-8 lg:p-10 overflow-y-auto custom-scrollbar flex-grow">
+              {/* Avatar and Name Edit Section */}
+              <div className="text-center mb-8 pt-4">
+                <div
+                  onClick={() => setIsEditingName(true)}
+                  className="w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 overflow-hidden border-4 border-gray-600 cursor-pointer shadow-lg transform transition-all duration-300 hover:scale-105 hover:border-blue-400"
+                  title="Click to edit display name"
+                >
+                  {me.icon_url ? (
+                    <img
+                      src={me.icon_url}
+                      alt={me.display_name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-white font-bold text-4xl sm:text-5xl">
+                      {me.display_name?.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mx-auto max-w-md p-4 sm:p-6 rounded-xl bg-gray-800/60 shadow-xl border border-gray-700">
+                  {isEditingName ? (
+                    <div className="space-y-4">
+                      <input
+                        type="text"
+                        value={editedName}
+                        onChange={(e) => setEditedName(e.target.value)}
+                        maxLength={50}
+                        className="w-full bg-gray-900/70 border border-gray-600 rounded-lg px-4 py-2 text-white text-center text-lg placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors duration-200"
+                        placeholder="Enter display name"
+                      />
+                      <div className="flex justify-center space-x-6">
+                        <button
+                          onClick={async () => {
+                            const trimmed = editedName.trim();
+                            if (trimmed === me.display_name) {
+                              setIsEditingName(false);
+                              return;
+                            }
+                            if (!trimmed) {
+                              alert("表示名を入力してください");
+                              return;
+                            }
+                            await api.updateMe(token, {
+                              display_name: trimmed,
+                            });
+                            setMe({ ...me, display_name: trimmed });
+                            setIsEditingName(false);
+                          }}
+                          className="text-green-400 hover:text-green-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
+                          title="Save"
+                        >
+                          <span className="material-symbols-outlined text-[32px]">
+                            check_circle
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditedName(me.display_name);
+                            setIsEditingName(false);
+                          }}
+                          className="text-red-400 hover:text-red-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
+                          title="Cancel"
+                        >
+                          <span className="material-symbols-outlined text-[32px]">
+                            cancel
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className="text-xl sm:text-2xl font-bold text-white mb-1">
+                        {me.display_name}
+                      </h3>
+                      <p className="text-gray-400 text-sm sm:text-base">
+                        {me.email}
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* --- */}
+              <hr className="border-gray-700 my-8" />
+
+              {/* Stats Section */}
+              <div className="grid grid-cols-3 gap-4 sm:gap-6 mb-8">
+                {/* Joined Rooms */}
+                <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-blue-900/40 to-blue-700/30 border border-blue-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
+                  <span className="material-symbols-outlined text-blue-300 text-3xl sm:text-4xl mb-1">
+                    meeting_room
+                  </span>
+                  <div className="text-xl sm:text-2xl font-bold text-white">
+                    {rooms.length}
+                  </div>
+                  <div className="text-xs sm:text-sm text-blue-200">
+                    Joined Rooms
+                  </div>
+                </div>
+
+                {/* Created Rooms */}
+                <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-green-900/40 to-emerald-700/30 border border-green-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
+                  <span className="material-symbols-outlined text-green-300 text-3xl sm:text-4xl mb-1">
+                    add_box
+                  </span>
+                  <div className="text-xl sm:text-2xl font-bold text-white">
+                    {myRooms.length}
+                  </div>
+                  <div className="text-xs sm:text-sm text-green-200">
+                    Created Rooms
+                  </div>
+                </div>
+
+                {/* Active Users */}
+                <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-purple-900/40 to-pink-700/30 border border-purple-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
+                  <span className="material-symbols-outlined text-purple-300 text-3xl sm:text-4xl mb-1">
+                    people
+                  </span>
+                  <div className="text-xl sm:text-2xl font-bold text-white">
+                    {Object.values(onlineUsers).reduce((s, u) => s + u.size, 0)}
+                  </div>
+                  <div className="text-xs sm:text-sm text-purple-200">
+                    Active Users
+                  </div>
+                </div>
+              </div>
+
+              {/* --- */}
+              <hr className="border-gray-700 my-8" />
+
+              {/* Logout Button */}
+              <div className="flex justify-center">
+                <button
+                  onClick={async () => {
+                    await signOut(auth);
+                    router.replace("/");
+                  }}
+                  className="w-full max-w-sm px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-200 hover:text-white text-lg font-medium transition-all duration-300 flex items-center justify-center space-x-3 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  <span className="material-symbols-outlined text-[24px]">
+                    logout
+                  </span>
+                  <span>Logout</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer.tsx */}
+      <footer className="fixed bottom-0 inset-x-0 bg-gray-900/90 border-t border-gray-300/20 backdrop-blur-lg z-0">
+        <div className="max-w-lg mx-auto flex justify-between items-center py-2 px-6 text-white relative">
+          {/* Active Users */}
+          <div className="flex items-center space-x-1 text-green-400 text-xs bg-gray-700/30 px-2 py-1 rounded-full backdrop-blur-sm">
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+            <span>
+              {Object.values(onlineUsers).reduce(
+                (sum, users) => sum + users.size,
+                0
+              )}
+            </span>
+          </div>
+
+          {/* Center Floating + Button */}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            title="Create Room"
+            className={`
           absolute -top-6 left-1/2 transform -translate-x-1/2
           w-14 h-14 rounded-full
           ${styles.createButtonBackground}
@@ -710,30 +811,13 @@ if (initializing) {
           flex items-center justify-center
           `}
           >
-          <span className="material-symbols-outlined text-[28px]">add</span>
+            <span className="material-symbols-outlined text-[28px]">add</span>
           </button>
           {/* Profile Button - ガラス感 + カラフル */}
-          <button
-          onClick={() => setShowProfileModal(true)}
-          title="Profile"
-          className="
-          px-2.5 py-1.5 rounded-lg
-          bg-white/5 hover:bg-white/10
-          border border-white/10
-          backdrop-blur
-          text-white text-sm
-          flex items-center gap-1
-          transition duration-200
-          "
-          >
-          <span className="material-symbols-outlined text-[18px]">
-          person
-          </span>
-          </button>
-          </div>
-          </footer>
-          </div>
-      );
+        </div>
+      </footer>
+    </div>
+  );
 }
 
 
@@ -786,8 +870,6 @@ export default function AuthPage() {
   const animationTimer = useRef<NodeJS.Timeout | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Ref for our canvas background
 
-  // --- Start of UI Enhancement Logic ---
-
   // Function to draw and animate "SATO" text particles on canvas
   const drawSatoBackground = useCallback(() => {
     const canvas = canvasRef.current;
@@ -796,17 +878,14 @@ export default function AuthPage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Adjust canvas size for responsiveness
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
     let animationFrameId: number;
-    let particles: SatoParticle[] = [];
+    const particles: SatoParticle[] = [];
     const maxParticles = 30; // Number of "SATO" particles
-    // Cool, vibrant color palette for the SATO text
     const colors = ["#A020F0", "#DA70D6", "#9370DB", "#C0C0C0", "#F0E68C"]; // Purple, Orchid, MediumPurple, Silver, Khaki
 
-    // Class to define and animate individual "SATO" text particles
     class SatoParticle {
       x: number;
       y: number;
@@ -823,11 +902,11 @@ export default function AuthPage() {
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
         this.size = Math.random() * 30 + 40; // Larger text sizes for impact
-        this.speedX = (Math.random() * 0.5 - 0.25); // Slow, subtle horizontal movement
-        this.speedY = (Math.random() * 0.5 - 0.25); // Slow, subtle vertical movement
+        this.speedX = Math.random() * 0.5 - 0.25; // Slow, subtle horizontal movement
+        this.speedY = Math.random() * 0.5 - 0.25; // Slow, subtle vertical movement
         this.color = colors[Math.floor(Math.random() * colors.length)];
         this.rotation = Math.random() * Math.PI * 2; // Initial random rotation
-        this.rotationSpeed = (Math.random() * 0.003 - 0.0015); // Very slow rotation
+        this.rotationSpeed = Math.random() * 0.003 - 0.0015; // Very slow rotation
         this.text = "SATO"; // The text to animate
         this.alpha = Math.random() * 0.4 + 0.1; // Varying transparency (10% to 50%)
       }
@@ -873,7 +952,7 @@ export default function AuthPage() {
     function animate() {
       ctx!.clearRect(0, 0, canvas!.width, canvas!.height); // Clear the entire canvas each frame
 
-      particles.forEach(particle => {
+      particles.forEach((particle) => {
         particle.update();
         particle.draw();
       });
@@ -944,7 +1023,7 @@ export default function AuthPage() {
         </div>
 
         <p className="text-gray-300 text-base md:text-lg mb-12 text-center max-w-xs md:max-w-md leading-relaxed drop-shadow-lg">
-         Welcome to SATOPON.
+          Welcome to SATOPON.
         </p>
 
         <button
@@ -961,7 +1040,9 @@ export default function AuthPage() {
           "
           disabled={isAnimating} // Disable button during animation
         >
-          <span className="material-symbols-outlined text-xl">rocket_launch</span>
+          <span className="material-symbols-outlined text-xl">
+            rocket_launch
+          </span>
           Get Started
         </button>
 
@@ -969,500 +1050,6 @@ export default function AuthPage() {
           Connect with Google
         </div>
       </div>
-    </div>
-  );
-}
-
-
---- FILE: ./app/rooms/[roomId]/moto.tsx ---
-
-// app/rooms/[roomId]/moto.tsx
-"use client";
-
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
-import * as api from "@/lib/api";
-import { usePresence } from "@/context/PresenceContext";
-
-export default function RoomPage() {
-  const { roomId } = useParams<{ roomId: string }>();
-  const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
-  const [me, setMe] = useState<any>(null);
-  const [room, setRoom] = useState<any>(null);
-  const [pointHistory, setPointHistory] = useState<any[]>([]);
-  const [settleHistory, setSettleHistory] = useState<any[]>([]);
-  const [msg, setMsg] = useState("");
-  const [myBalance, setMyBalance] = useState<number>(0);
-  // ポイントラウンド用 state
-  const [isRoundActive, setIsRoundActive] = useState(false);
-  const [currentRoundId, setCurrentRoundId] = useState<string | null>(null);
-  const [submittedBy, setSubmittedBy] = useState<Set<string>>(new Set());
-  const [submissions, setSubmissions] = useState<Record<string, number>>({});
-  const [finalTable, setFinalTable] = useState<Record<string, number> | null>(
-    null
-  );
-  const [approvedBy, setApprovedBy] = useState<Set<string>>(new Set());
-
-  const [pendingReq, setPendingReq] = useState<{
-    from_uid: string;
-    amount: number;
-  } | null>(null);
-  const [settleInput, setSettleInput] = useState({ to_uid: "", amount: 0 });
-  const {
-    wsReady,
-    enterRoom,
-    leaveRoom,
-    subscribePresence,
-    unsubscribePresence,
-    onlineUsers: ctxOnlineUsers,
-    onEvent,
-  } = usePresence();
-
-  useEffect(() => {
-    if (!me) return;
-    const off = onEvent((ev) => {
-      console.log("★WS イベント受信★", ev, "me.uid=", me.uid);
-      if (ev.room_id !== roomId) return;
-      switch (ev.type) {
-        case "settle_requested":
-          if (ev.to_uid === me.uid) {
-            setPendingReq({ from_uid: ev.from_uid, amount: ev.amount });
-          }
-          break;
-        case "settle_rejected":
-          if (ev.to_uid === me.uid) {
-            alert(`${ev.from_uid} さんに拒否されました`);
-          }
-          break;
-        case "settle_completed":
-          setMsg((m) => m + "x");
-          break;
-      }
-    });
-    return off;
-  }, [onEvent, me, roomId]);
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setToken(data.session?.access_token ?? null);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!me) return;
-    const total = pointHistory.reduce((sum, rec) => {
-      const entry = rec.points.find((p: any) => p.uid === me.uid);
-      return sum + (entry?.value || 0);
-    }, 0);
-    setMyBalance(total);
-  }, [pointHistory, me]);
-
-  useEffect(() => {
-    if (!token) return;
-    api
-      .getMe(token)
-      .then(setMe)
-      .catch(() => router.replace("/"));
-  }, [token, router]);
-  useEffect(() => {
-    if (!token || !roomId) return;
-    (async () => {
-      try {
-        const [roomData, ph, sh] = await Promise.all([
-          api.getRoom(token, roomId),
-          api.getPointHistory(token, roomId),
-          api.getSettlementHistory(token, roomId),
-        ]);
-        setRoom(roomData);
-        setPointHistory(ph);
-        setSettleHistory(sh);
-      } catch (err: any) {
-        console.error("fetchAll error:", err);
-        alert("データの取得に失敗しました。");
-      }
-    })();
-  }, [token, roomId, msg]);
-
-  useEffect(() => {
-    if (!wsReady || !roomId) return;
-    enterRoom(roomId);
-    return () => {
-      leaveRoom(roomId);
-    };
-  }, [wsReady, roomId, enterRoom, leaveRoom]);
-
-  // 4. ポイント・精算イベントのみ拾う
-  useEffect(() => {
-    if (!roomId) return;
-    const off = onEvent((ev) => {
-      if (ev.room_id !== roomId) return;
-      switch (ev.type) {
-        case "point_round_started":
-          setIsRoundActive(true);
-          setCurrentRoundId(ev.round_id);
-          setSubmittedBy(new Set());
-          setSubmissions({});
-          setFinalTable(null);
-          setApprovedBy(new Set());
-          break;
-        case "point_submitted":
-          setSubmissions((s) => ({ ...s, [ev.uid]: ev.value }));
-          setSubmittedBy((s) => new Set(s).add(ev.uid));
-          break;
-        case "point_final_table":
-          setIsRoundActive(false);
-          setFinalTable(ev.table);
-          break;
-        case "point_approved":
-          setApprovedBy((s) => new Set(s).add(ev.uid));
-          break;
-        case "point_round_cancelled":
-          alert("ラウンド中止: " + ev.reason);
-          setIsRoundActive(false);
-          setSubmissions({});
-          setSubmittedBy(new Set());
-          break;
-        default:
-          // join_request, join_approved, settle_approved などは再フェッチ
-          setMsg((m) => m + "x");
-      }
-    });
-    return off;
-  }, [onEvent, roomId]);
-
-  if (!token || !me) {
-    return <p className="text-center mt-20 text-gray-400">Loading…</p>;
-  }
-  if (!room) {
-    return <p className="text-center mt-20 text-red-400">Room not found.</p>;
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-900 text-gray-100">
-      <header className="flex items-center justify-between p-6 border-b border-gray-700">
-        <div>
-          <h1 className="text-2xl font-bold">{room.name}</h1>
-          <p className="text-gray-400 mt-1">
-            あなたのポイント:{" "}
-            <span className="text-yellow-300 font-semibold">{myBalance}pt</span>
-          </p>
-        </div>
-        <Link href="/c420" className="text-blue-400 hover:underline">
-          ← ダッシュボードへ
-        </Link>
-      </header>
-      <main className="max-w-3xl mx-auto p-6 space-y-8">
-        {/* ルーム説明 */}
-        {room.description && (
-          <p className="text-gray-300">{room.description}</p>
-        )}
-
-        {/* メンバー一覧 & 退会 */}
-        <section className="bg-gray-800 p-4 rounded">
-          <h2 className="font-semibold mb-2">メンバー</h2>
-          <div className="flex flex-wrap gap-2">
-            {room.members.map((m: any) => {
-              // PresenceContext 側の onlineUsers で判定
-              const isOnline = ctxOnlineUsers[roomId]?.has(m.uid) ?? false;
-              return (
-                <span
-                  key={m.uid}
-                  className={`
-                    px-3 py-1 rounded-full flex items-center gap-1
-                    ${m.uid === me.uid ? "bg-blue-600" : "bg-gray-700"}
-                    ${isOnline ? "ring-2 ring-green-400" : "opacity-60"}
-                  `}
-                >
-                  {m.uid}
-                  {isOnline && (
-                    <span className="w-2 h-2 bg-green-400 rounded-full" />
-                  )}
-                </span>
-              );
-            })}
-          </div>
-          <button
-            onClick={async () => {
-              await api.leaveRoom(token, roomId);
-              router.replace("/c420");
-            }}
-            className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 rounded"
-          >
-            退会する
-          </button>
-        </section>
-
-        {room.created_by === me.uid && room.pending_members.length > 0 && (
-          <section className="bg-gray-800 p-4 rounded">
-            <h2 className="font-semibold mb-2">参加申請中</h2>
-            {room.pending_members.map((p: any) => (
-              <div
-                key={p.uid}
-                className="flex justify-between items-center mb-2"
-              >
-                <span>{p.uid}</span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={async () => {
-                      await api.approveMember(token, roomId, p.uid);
-                      setMsg("approved");
-                    }}
-                    className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded"
-                  >
-                    承認
-                  </button>
-                  <button
-                    onClick={async () => {
-                      await api.rejectMember(token, roomId, p.uid);
-                      setMsg((m) => m + "-rejected");
-                    }}
-                    className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded"
-                  >
-                    拒否
-                  </button>
-                </div>
-              </div>
-            ))}
-          </section>
-        )}
-
-        {/* ポイントラウンド */}
-        <section className="bg-gray-800 p-4 rounded">
-          <h2 className="font-semibold mb-3">ポイントラウンド</h2>
-          {!isRoundActive && !finalTable && (
-            <button
-              onClick={() => api.startPointRound(token, roomId)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
-            >
-              ラウンド開始
-            </button>
-          )}
-          {isRoundActive && (
-            <div className="space-y-2">
-              <p>提出状況:</p>
-              {room.members.map((m: any) => (
-                <div key={m.uid} className="flex justify-between">
-                  <span>{m.uid}</span>
-                  {submittedBy.has(m.uid) ? (
-                    <span className="text-green-400">提出済</span>
-                  ) : m.uid === me.uid ? (
-                    <button
-                      onClick={async () => {
-                        const v = prompt("スコアを入力してください", "0");
-                        if (v === null) {
-                          await api.cancelPointRound(token, roomId, {
-                            reason: "ユーザーキャンセル",
-                          });
-                          return;
-                        }
-                        const num = Number(v);
-                        if (!isNaN(num)) {
-                          await api.submitPoint(token, roomId, me.uid, num);
-                        }
-                      }}
-                      className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded"
-                    >
-                      提出
-                    </button>
-                  ) : (
-                    <span className="text-gray-500">未提出</span>
-                  )}
-                </div>
-              ))}
-              {submittedBy.size === room.members.length && (
-                <button
-                  onClick={() => api.finalizePointRound(token, roomId)}
-                  className="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded"
-                >
-                  集計する
-                </button>
-              )}
-            </div>
-          )}
-          {finalTable && (
-            <div className="mt-4">
-              <h3 className="font-medium mb-2">最終スコア表</h3>
-              <div className="space-y-1">
-                {Object.entries(finalTable).map(([uid, v]) => (
-                  <div key={uid} className="flex justify-between">
-                    <span>{uid}</span>
-                    <span>{v}pt</span>
-                  </div>
-                ))}
-              </div>
-              <h4 className="mt-3 font-medium">承認状況</h4>
-              <div className="space-y-1">
-                {room.members.map((m: any) => (
-                  <div key={m.uid} className="flex justify-between">
-                    <span>{m.uid}</span>
-                    {approvedBy.has(m.uid) ? (
-                      <span className="text-green-400">承認済</span>
-                    ) : (
-                      m.uid === me.uid && (
-                        <button
-                          onClick={() =>
-                            api.approvePoint(token, roomId, currentRoundId!)
-                          }
-                          className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 rounded"
-                        >
-                          承認
-                        </button>
-                      )
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* ポイント履歴 */}
-        <section className="bg-gray-800 p-4 rounded">
-          <h2 className="font-semibold mb-2">ポイント履歴</h2>
-          {pointHistory.length === 0 ? (
-            <p className="text-gray-400">まだありません。</p>
-          ) : (
-            pointHistory.map((rec) => (
-              <div key={rec.round_id} className="mb-3 p-3 bg-gray-700 rounded">
-                <div className="flex justify-between">
-                  <span>#{rec.round_id}</span>
-                  <span className="text-gray-400 text-sm">
-                    {new Date(rec.created_at).toLocaleString()}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {rec.points.map((p: any) => (
-                    <div key={p.uid} className="flex justify-between">
-                      <span>{p.uid}</span>
-                      <span>{p.value > 0 ? `+${p.value}` : p.value}pt</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </section>
-        {/* 承認モーダル */}
-        {pendingReq && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-            <div className="bg-gray-800 p-6 rounded">
-              <p className="mb-4 text-white">
-                {pendingReq.from_uid} さんから {pendingReq.amount}円
-                の精算リクエストがあります。
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={async () => {
-                    await api.approveSettlementRequest(
-                      token!,
-                      roomId!,
-                      pendingReq.from_uid
-                    );
-                    setPendingReq(null);
-                  }}
-                  className="px-4 py-2 bg-green-600 rounded"
-                >
-                  承認
-                </button>
-                <button
-                  onClick={async () => {
-                    await api.rejectSettlementRequest(
-                      token!,
-                      roomId!,
-                      pendingReq.from_uid
-                    );
-                    setPendingReq(null);
-                  }}
-                  className="px-4 py-2 bg-red-600 rounded"
-                >
-                  拒否
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* 精算 */}
-        <section className="bg-gray-800 p-4 rounded">
-          <h2 className="font-semibold mb-3">精算</h2>
-          <div className="flex gap-2 mb-4">
-            <select
-              value={settleInput.to_uid}
-              onChange={(e) =>
-                setSettleInput((s) => ({ ...s, to_uid: e.target.value }))
-              }
-              className="flex-1 p-2 bg-gray-700 border border-gray-600 rounded"
-            >
-              <option value="">--相手選択--</option>
-              {room.members
-                .filter((m: any) => m.uid !== me.uid)
-                .map((m: any) => (
-                  <option key={m.uid} value={m.uid}>
-                    {m.uid}
-                  </option>
-                ))}
-            </select>
-            <input
-              type="number"
-              value={settleInput.amount}
-              onChange={(e) =>
-                setSettleInput((s) => ({
-                  ...s,
-                  amount: Number(e.target.value),
-                }))
-              }
-              className="w-24 p-2 bg-gray-700 border border-gray-600 rounded"
-            />
-            <button
-              onClick={async () => {
-                // リクエスト送信API
-                await api.requestSettlement(
-                  token!,
-                  roomId!,
-                  settleInput.to_uid,
-                  settleInput.amount
-                );
-                setSettleInput({ to_uid: "", amount: 0 });
-              }}
-              className="px-4 py-2 bg-purple-600 rounded"
-            >
-              リクエスト
-            </button>
-          </div>
-          <h3 className="font-semibold mb-2">精算履歴</h3>
-          {settleHistory.length === 0 ? (
-            <p className="text-gray-400">まだありません。</p>
-          ) : (
-            settleHistory.map((s, i) => (
-              <div
-                key={i}
-                className="flex justify-between items-center mb-2 p-3 bg-gray-700 rounded"
-              >
-                <span>
-                  {s.from_uid} → {s.to_uid} : {s.amount}円 [
-                  {s.approved ? "承認済" : "未承認"}]
-                </span>
-                {!s.approved && (
-                  <button
-                    onClick={async () => {
-                      await api.approveSettlement(
-                        token,
-                        roomId,
-                        s._id ?? s.settlement_id
-                      );
-                      setMsg("approved-settle");
-                    }}
-                    className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded"
-                  >
-                    承認
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-        </section>
-      </main>
     </div>
   );
 }
@@ -1479,10 +1066,6 @@ import * as api from "@/lib/api";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
 import { usePresence } from "@/context/PresenceContext";
-
-type PendingRequest =
-  | { type: "join"; from_uid: string }
-  | { type: "settle"; from_uid: string; amount: number };
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -1697,75 +1280,68 @@ export default function RoomPage() {
   }
 
   // inside RoomPage(), after your existing hooks:
-const totalPon = pointHistory.filter(rec => rec.round_id.startsWith("PON")).length;
-const wins = pointHistory.reduce((acc, rec) => {
-  if (!rec.round_id.startsWith("PON")) return acc;
-  // find highest scorer
-  const top = [...rec.points].sort((a, b) => b.value - a.value)[0];
-  return top.uid === me?.uid ? acc + 1 : acc;
-}, 0);
 
-useEffect(() => {
-  if (!me) return;
-  const off = onEvent((ev) => {
-    if (ev.room_id !== roomId) return;
+  useEffect(() => {
+    if (!me) return;
+    const off = onEvent((ev) => {
+      if (ev.room_id !== roomId) return;
 
-    switch (ev.type) {
-      case "join_request":
-        setJoinQueue((q) => [...q, ev.applicant_uid]);
-        break;
-      case "join_approved":
-      case "join_rejected":
-        setJoinQueue((q) => q.filter((uid) => uid !== ev.applicant_uid));
-        break;
-      case "join_request_cancelled":
-        setJoinQueue((q) => q.filter((uid) => uid !== ev.user_id));
-        break;
-      case "point_round_started":
-        setShowPointModal(true);
-        setIsRoundActive(true);
-        setCurrentRoundId(ev.round_id);
-        setSubmittedBy(new Set());
-        setSubmissions({});
-        setFinalTable(null);
-        setApprovedBy(new Set());
-        break;
-      case "point_submitted":
-        setSubmittedBy((s) => new Set(s).add(ev.uid));
-        setSubmissions((s) => ({ ...s, [ev.uid]: ev.value }));
-        break;
-      case "point_final_table":
-        setIsRoundActive(false);
-        setFinalTable(ev.table);
-        break;
-      case "point_approved":
-        setApprovedBy((s) => new Set(s).add(ev.uid));
-        break;
-      case "point_round_cancelled":
-        cancelPointRound(ev.reason);
-        break;
-      case "settle_requested":
-        if (ev.to_uid === me.uid) {
-          setPendingReq({ from_uid: ev.from_uid, amount: ev.amount });
-        }
-        break;
-      case "settle_rejected":
-        if (ev.from_uid === me.uid) {
-          const rejecter = userMap[ev.to_uid]?.display_name || ev.to_uid;
-          alert(`${rejecter} さんに拒否されました`);
-          setPendingReq(null);
-          setSettleInput({ to_uid: "", amount: 0 });
-          setAmountInput("");
-        }
-        break;
-      case "settle_completed":
-        break;
-      default:
-        break;
-    }
-  });
-  return off;
-}, [onEvent, me, roomId, userMap]);
+      switch (ev.type) {
+        case "join_request":
+          setJoinQueue((q) => [...q, ev.applicant_uid]);
+          break;
+        case "join_approved":
+        case "join_rejected":
+          setJoinQueue((q) => q.filter((uid) => uid !== ev.applicant_uid));
+          break;
+        case "join_request_cancelled":
+          setJoinQueue((q) => q.filter((uid) => uid !== ev.user_id));
+          break;
+        case "point_round_started":
+          setShowPointModal(true);
+          setIsRoundActive(true);
+          setCurrentRoundId(ev.round_id);
+          setSubmittedBy(new Set());
+          setSubmissions({});
+          setFinalTable(null);
+          setApprovedBy(new Set());
+          break;
+        case "point_submitted":
+          setSubmittedBy((s) => new Set(s).add(ev.uid));
+          setSubmissions((s) => ({ ...s, [ev.uid]: ev.value }));
+          break;
+        case "point_final_table":
+          setIsRoundActive(false);
+          setFinalTable(ev.table);
+          break;
+        case "point_approved":
+          setApprovedBy((s) => new Set(s).add(ev.uid));
+          break;
+        case "point_round_cancelled":
+          cancelPointRound(ev.reason);
+          break;
+        case "settle_requested":
+          if (ev.to_uid === me.uid) {
+            setPendingReq({ from_uid: ev.from_uid, amount: ev.amount });
+          }
+          break;
+        case "settle_rejected":
+          if (ev.from_uid === me.uid) {
+            const rejecter = userMap[ev.to_uid]?.display_name || ev.to_uid;
+            alert(`${rejecter} さんに拒否されました`);
+            setPendingReq(null);
+            setSettleInput({ to_uid: "", amount: 0 });
+            setAmountInput("");
+          }
+          break;
+        case "settle_completed":
+          break;
+        default:
+          break;
+      }
+    });
+    return off;
+  }, [onEvent, me, roomId, userMap]);
 
   if (!token || !me)
     return (
@@ -1824,327 +1400,369 @@ useEffect(() => {
   const myUid = me.uid;
   const onlineCount = ctxOnlineUsers[roomId]?.size || 0;
   const canStartRound = onlineCount >= 2;
-      return (
-  <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-gray-100 flex flex-col relative overflow-hidden">
-    {/* 背景エフェクト */}
-    <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 animate-pulse"></div>
-    <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(120,119,198,0.1),transparent_50%)]"></div>
-    
-{/* Header */}
-<header className="relative z-10 px-4 sm:px-8 py-4 backdrop-blur-lg bg-gray-900/70 border-b border-gray-700/50">
-  <div className="max-w-[1150px] mx-auto flex items-center justify-between">
-    {/* Back Button */}
-    <button
-      onClick={() => router.push("/c420")}
-      className="p-2 rounded-lg hover:bg-gray-800/50 transition-all duration-200 hover:scale-105"
-    >
-      <span className="material-symbols-outlined text-white text-2xl">
-        arrow_back
-      </span>
-    </button>
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-gray-100 flex flex-col relative overflow-hidden">
+      {/* 背景エフェクト */}
+      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 animate-pulse"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(120,119,198,0.1),transparent_50%)]"></div>
 
-    {/* Title + Online Count */}
-    <div className="flex flex-col items-center">
-      <h1 className="text-xl sm:text-2xl font-bold tracking-wide bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-        {room.name}
-      </h1>
-      <div className="flex items-center gap-2 mt-1">
-        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-        <span className="text-xs text-gray-400">{onlineCount} online</span>
-      </div>
-    </div>
-
-    {/* Settings Button */}
-    <button
-      onClick={() => setShowSettingsModal(true)}
-      className="p-2 rounded-lg hover:bg-gray-800/50 transition-all duration-200 hover:scale-105"
-    >
-      <span className="material-symbols-outlined text-white text-2xl">
-        settings
-      </span>
-    </button>
-  </div>
-</header>
-<div className="w-full">
-    <main className="max-w-[1200px] mx-auto relative z-10 flex-grow overflow-auto px-4 sm:px-8 py-6">
-{/* Player Card */}
-<div className="relative mb-8">
-  {/* background glow */}
-  <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 rounded-3xl blur-xl" />
-
-  {/* card container */}
-  <div className="relative bg-gray-800/80 backdrop-blur-lg rounded-3xl p-4 sm:p-6 border border-gray-700/50">
-    <div className="flex items-center flex-wrap sm:space-x-6">
-      {/* avatar */}
-      <div className="relative flex-shrink-0 mr-4">
-        <div className="absolute inset-0 rounded-full blur-md opacity-50 bg-gradient-to-r from-blue-400 to-purple-500" />
-        <div className="relative w-16 h-16 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 border-4 border-gray-700 overflow-hidden flex items-center justify-center shadow-2xl">
-          {me.icon_url ? (
-            <img
-              src={me.icon_url}
-              alt="Your avatar"
-              className="w-full h-full object-cover rounded-full"
-            />
-          ) : (
-            <span className="text-3xl sm:text-5xl text-white font-bold">
-              {me.display_name.charAt(0).toUpperCase()}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* stats */}
-      <div className="flex-1">
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
-          {/* balance */}
-          <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
-            <span className="material-symbols-outlined text-yellow-400 text-base">monetization_on</span>
-            <span className={`font-semibold ${
-                myBalance > 0 ? "text-yellow-400" :
-                myBalance < 0 ? "text-red-500" :
-                "text-gray-300"
-              }`}>
-              {myBalance.toLocaleString()}
-            </span>
-            <span className="text-xs text-gray-400">sato</span>
-          </div>
-
-          {/* rank */}
-          <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
-            <span className="material-symbols-outlined text-purple-400 text-base">trending_up</span>
-            <span className="font-semibold text-purple-400">
-              {(() => {
-                const sorted = Object.entries(balances).sort(([,a],[,b]) => b - a);
-                return sorted.findIndex(([uid]) => uid === myUid)! + 1;
-              })()}
-            </span>
-            <span className="text-xs text-gray-400">rank</span>
-          </div>
-
-          {/* wins */}
-          <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
-            <span className="material-symbols-outlined text-green-500 text-base">Add</span>
-            <span className="font-semibold text-green-500">
-              {(() => {
-                const pon = pointHistory.filter(r => r.round_id.startsWith("PON"));
-                const w = pon.reduce((c, rec) => {
-                  const meP = rec.points.find(p => p.uid === myUid);
-                  return meP && meP.value > 0 ? c+1 : c;
-                }, 0);
-                return `${w}/${pon.length}`;
-              })()}
-            </span>
-            <span className="text-xs text-gray-400">plus</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-{/* ゲームアクション */}
-      <div className="grid grid-cols-3 gap-3 sm:gap-6 mb-8">
-        {/* SATO */}
-        <button
-          onClick={() => canStartRound && setShowSettleModal(true)}
-          disabled={!canStartRound}
-          className={`group relative overflow-hidden rounded-2xl transition-all duration-300 transform hover:scale-105 ${
-            canStartRound
-              ? "bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-lg hover:shadow-purple-500/25"
-              : "bg-gray-700/50 cursor-not-allowed opacity-50"
-          }`}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-          <div className="relative flex flex-col items-center p-4 sm:p-6">
-            <span className="material-symbols-outlined text-white text-2xl sm:text-3xl mb-2">
-              payments
-            </span>
-            <span className="text-sm sm:text-base font-bold text-white">SATO</span>
-          </div>
-        </button>
-
-        {/* History */}
-        <button
-          onClick={() => setShowHistoryModal(true)}
-          className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 transition-all duration-300 transform hover:scale-105 shadow-lg"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-          <div className="relative flex flex-col items-center p-4 sm:p-6">
-            <span className="material-symbols-outlined text-blue-400 text-2xl sm:text-3xl mb-2">
-              history
-            </span>
-            <span className="text-sm sm:text-base font-bold text-white">History</span>
-          <span className="text-xs text-gray-400 mt-1 hidden sm:block">
-  {pointHistory.filter(r => r.round_id.startsWith("PON")).length} games
-</span>
-</div>
-        </button>
-
-        {/* PON */}
-        <button
-          onClick={() => canStartRound && setShowPointModal(true)}
-          disabled={!canStartRound}
-          className={`group relative overflow-hidden rounded-2xl transition-all duration-300 transform hover:scale-105 ${
-            canStartRound
-              ? isRoundActive
-                ? "bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 text-white ring-2 ring-purple-400 animate-pulse shadow-lg shadow-purple-500/50"
-                : "bg-gradient-to-br from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-lg hover:shadow-indigo-500/25"
-              : "bg-gray-700/50 cursor-not-allowed opacity-50"
-          }`}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-          <div className="relative flex flex-col items-center p-4 sm:p-6">
-            <span className="material-symbols-outlined text-white text-2xl sm:text-3xl mb-2">
-              leaderboard
-            </span>
-            <span className="text-sm sm:text-base font-bold text-white">
-              {isRoundActive ? "Active" : "PON"}
-            </span>
-          </div>
-        </button>
-      </div>
-
-      {/* 待機中のリクエスト */}
-{/* Pending Join Requests */}
-{joinQueue.length > 0 && (
-  <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
-    {/* header */}
-    <h3 className="flex items-center gap-2 text-lg font-bold text-amber-400 mb-3">
-      <span className="material-symbols-outlined">notification_important</span>
-      Join Requests ({joinQueue.length})
-    </h3>
-    {/* list */}
-    <div className="space-y-2 max-h-64 overflow-y-auto">
-      {joinQueue.map((uid) => {
-        const user = userMap[uid] || { display_name: uid };
-        const online = ctxOnlineUsers[roomId]?.has(uid);
-        return (
-          <div
-            key={uid}
-            className="flex items-center justify-between bg-gray-800/50 hover:bg-gray-800/70 rounded-xl p-3 transition-colors"
+      {/* Header */}
+      <header className="relative z-10 px-4 sm:px-8 py-4 backdrop-blur-lg bg-gray-900/70 border-b border-gray-700/50">
+        <div className="max-w-[1150px] mx-auto flex items-center justify-between">
+          {/* Back Button */}
+          <button
+            onClick={() => router.push("/c420")}
+            className="p-2 rounded-lg hover:bg-gray-800/50 transition-all duration-200 hover:scale-105"
           >
-            {/* user info */}
-            <div className="flex items-center gap-3">
-              {/* online indicator */}
-              <span
-                className={`w-3 h-3 rounded-full border-2 border-gray-800 ${
-                  online ? "bg-green-400" : "bg-gray-600"
-                }`}
-                title={online ? "Online" : "Offline"}
-              />
-              {/* avatar */}
-              {user.icon_url ? (
-                <img
-                  src={user.icon_url}
-                  alt={user.display_name}
-                  className="w-10 h-10 rounded-full object-cover shadow-lg"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold text-white shadow-lg">
-                  {user.display_name.charAt(0).toUpperCase()}
+            <span className="material-symbols-outlined text-white text-2xl">
+              arrow_back
+            </span>
+          </button>
+
+          {/* Title + Online Count */}
+          <div className="flex flex-col items-center">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-wide bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              {room.name}
+            </h1>
+            <div className="flex items-center gap-2 mt-1">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span className="text-xs text-gray-400">
+                {onlineCount} online
+              </span>
+            </div>
+          </div>
+
+          {/* Settings Button */}
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className="p-2 rounded-lg hover:bg-gray-800/50 transition-all duration-200 hover:scale-105"
+          >
+            <span className="material-symbols-outlined text-white text-2xl">
+              settings
+            </span>
+          </button>
+        </div>
+      </header>
+      <div className="w-full">
+        <main className="max-w-[1200px] mx-auto relative z-10 flex-grow overflow-auto px-4 sm:px-8 py-6">
+          {/* Player Card */}
+          <div className="relative mb-8">
+            {/* background glow */}
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 rounded-3xl blur-xl" />
+
+            {/* card container */}
+            <div className="relative bg-gray-800/80 backdrop-blur-lg rounded-3xl p-4 sm:p-6 border border-gray-700/50">
+              <div className="flex items-center flex-wrap sm:space-x-6">
+                {/* avatar */}
+                <div className="relative flex-shrink-0 mr-4">
+                  <div className="absolute inset-0 rounded-full blur-md opacity-50 bg-gradient-to-r from-blue-400 to-purple-500" />
+                  <div className="relative w-16 h-16 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 border-4 border-gray-700 overflow-hidden flex items-center justify-center shadow-2xl">
+                    {me.icon_url ? (
+                      <img
+                        src={me.icon_url}
+                        alt="Your avatar"
+                        className="w-full h-full object-cover rounded-full"
+                      />
+                    ) : (
+                      <span className="text-3xl sm:text-5xl text-white font-bold">
+                        {me.display_name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              )}
-              {/* name */}
-              <span className="font-medium text-white truncate">
-                {user.display_name}
-              </span>
-            </div>
-            {/* actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleDecision("approve", uid)}
-                className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium transition-colors"
-              >
-                Accept
-              </button>
-              <button
-                onClick={() => handleDecision("reject", uid)}
-                className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
-              >
-                Reject
-              </button>
+
+                {/* stats */}
+                <div className="flex-1">
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
+                    {/* balance */}
+                    <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
+                      <span className="material-symbols-outlined text-yellow-400 text-base">
+                        monetization_on
+                      </span>
+                      <span
+                        className={`font-semibold ${
+                          myBalance > 0
+                            ? "text-yellow-400"
+                            : myBalance < 0
+                              ? "text-red-500"
+                              : "text-gray-300"
+                        }`}
+                      >
+                        {myBalance.toLocaleString()}
+                      </span>
+                      <span className="text-xs text-gray-400">sato</span>
+                    </div>
+
+                    {/* rank */}
+                    <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
+                      <span className="material-symbols-outlined text-purple-400 text-base">
+                        trending_up
+                      </span>
+                      <span className="font-semibold text-purple-400">
+                        {(() => {
+                          const sorted = Object.entries(balances).sort(
+                            ([, a], [, b]) => b - a
+                          );
+                          return (
+                            sorted.findIndex(([uid]) => uid === myUid)! + 1
+                          );
+                        })()}
+                      </span>
+                      <span className="text-xs text-gray-400">rank</span>
+                    </div>
+
+                    {/* wins */}
+                    <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
+                      <span className="material-symbols-outlined text-green-500 text-base">
+                        Add
+                      </span>
+                      <span className="font-semibold text-green-500">
+                        {(() => {
+                          const pon = pointHistory.filter((r) =>
+                            r.round_id.startsWith("PON")
+                          );
+                          const w = pon.reduce((c, rec) => {
+                            const meP = rec.points.find((p) => p.uid === myUid);
+                            return meP && meP.value > 0 ? c + 1 : c;
+                          }, 0);
+                          return `${w}/${pon.length}`;
+                        })()}
+                      </span>
+                      <span className="text-xs text-gray-400">plus</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        );
-      })}
-    </div>
-  </div>
-)}
+          {/* ゲームアクション */}
+          <div className="grid grid-cols-3 gap-3 sm:gap-6 mb-8">
+            {/* SATO */}
+            <button
+              onClick={() => canStartRound && setShowSettleModal(true)}
+              disabled={!canStartRound}
+              className={`group relative overflow-hidden rounded-2xl transition-all duration-300 transform hover:scale-105 ${
+                canStartRound
+                  ? "bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-lg hover:shadow-purple-500/25"
+                  : "bg-gray-700/50 cursor-not-allowed opacity-50"
+              }`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+              <div className="relative flex flex-col items-center p-4 sm:p-6">
+                <span className="material-symbols-outlined text-white text-2xl sm:text-3xl mb-2">
+                  payments
+                </span>
+                <span className="text-sm sm:text-base font-bold text-white">
+                  SATO
+                </span>
+              </div>
+            </button>
 
-    {/* Members*/}
-{/* Leaderboard as Members (section and cards) */}
-<section>
-  <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-    <span className="material-symbols-outlined text-green-400">group</span>
-    Members ({room.members.length})
-  </h2>
-  <div className="flex gap-3 overflow-x-auto pb-1 snap-x sm:grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 sm:overflow-visible sm:snap-none">
-    {Object.entries(balances)
-      .sort(([, a], [, b]) => b - a)
-      .map(([uid, bal], idx) => {
-        const info = userMap[uid] || { display_name: uid, icon_url: undefined };
-        const online = ctxOnlineUsers[roomId]?.has(uid);
-        const isMe = uid === myUid;
-        return (
-          <div
-            key={uid}
-            className={`mt-2 relative flex-shrink-0 w-40 sm:w-auto snap-start bg-gray-800/50 backdrop-blur-lg rounded-2xl p-4 border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300 ${
-              isMe ? 'ring-2 ring-blue-500/50' : ''
-            }`}
-          >
-            {/* medal badge */}
-            {idx < 3 && (
-              <span className={`
+            {/* History */}
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 transition-all duration-300 transform hover:scale-105 shadow-lg"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+              <div className="relative flex flex-col items-center p-4 sm:p-6">
+                <span className="material-symbols-outlined text-blue-400 text-2xl sm:text-3xl mb-2">
+                  history
+                </span>
+                <span className="text-sm sm:text-base font-bold text-white">
+                  History
+                </span>
+                <span className="text-xs text-gray-400 mt-1 hidden sm:block">
+                  {
+                    pointHistory.filter((r) => r.round_id.startsWith("PON"))
+                      .length
+                  }{" "}
+                  games
+                </span>
+              </div>
+            </button>
+
+            {/* PON */}
+            <button
+              onClick={() => canStartRound && setShowPointModal(true)}
+              disabled={!canStartRound}
+              className={`group relative overflow-hidden rounded-2xl transition-all duration-300 transform hover:scale-105 ${
+                canStartRound
+                  ? isRoundActive
+                    ? "bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 text-white ring-2 ring-purple-400 animate-pulse shadow-lg shadow-purple-500/50"
+                    : "bg-gradient-to-br from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-lg hover:shadow-indigo-500/25"
+                  : "bg-gray-700/50 cursor-not-allowed opacity-50"
+              }`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+              <div className="relative flex flex-col items-center p-4 sm:p-6">
+                <span className="material-symbols-outlined text-white text-2xl sm:text-3xl mb-2">
+                  leaderboard
+                </span>
+                <span className="text-sm sm:text-base font-bold text-white">
+                  {isRoundActive ? "Active" : "PON"}
+                </span>
+              </div>
+            </button>
+          </div>
+
+          {/* 待機中のリクエスト */}
+          {/* Pending Join Requests */}
+          {joinQueue.length > 0 && (
+            <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
+              {/* header */}
+              <h3 className="flex items-center gap-2 text-lg font-bold text-amber-400 mb-3">
+                <span className="material-symbols-outlined">
+                  notification_important
+                </span>
+                Join Requests ({joinQueue.length})
+              </h3>
+              {/* list */}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {joinQueue.map((uid) => {
+                  const user = userMap[uid] || { display_name: uid };
+                  const online = ctxOnlineUsers[roomId]?.has(uid);
+                  return (
+                    <div
+                      key={uid}
+                      className="flex items-center justify-between bg-gray-800/50 hover:bg-gray-800/70 rounded-xl p-3 transition-colors"
+                    >
+                      {/* user info */}
+                      <div className="flex items-center gap-3">
+                        {/* online indicator */}
+                        <span
+                          className={`w-3 h-3 rounded-full border-2 border-gray-800 ${
+                            online ? "bg-green-400" : "bg-gray-600"
+                          }`}
+                          title={online ? "Online" : "Offline"}
+                        />
+                        {/* avatar */}
+                        {user.icon_url ? (
+                          <img
+                            src={user.icon_url}
+                            alt={user.display_name}
+                            className="w-10 h-10 rounded-full object-cover shadow-lg"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold text-white shadow-lg">
+                            {user.display_name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        {/* name */}
+                        <span className="font-medium text-white truncate">
+                          {user.display_name}
+                        </span>
+                      </div>
+                      {/* actions */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleDecision("approve", uid)}
+                          className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => handleDecision("reject", uid)}
+                          className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Members*/}
+          {/* Leaderboard as Members (section and cards) */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <span className="material-symbols-outlined text-green-400">
+                group
+              </span>
+              Members ({room.members.length})
+            </h2>
+            <div className="flex gap-3 overflow-x-auto pb-1 snap-x sm:grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 sm:overflow-visible sm:snap-none">
+              {Object.entries(balances)
+                .sort(([, a], [, b]) => b - a)
+                .map(([uid, bal], idx) => {
+                  const info = userMap[uid] || {
+                    display_name: uid,
+                    icon_url: undefined,
+                  };
+                  const online = ctxOnlineUsers[roomId]?.has(uid);
+                  const isMe = uid === myUid;
+                  return (
+                    <div
+                      key={uid}
+                      className={`mt-2 relative flex-shrink-0 w-40 sm:w-auto snap-start bg-gray-800/50 backdrop-blur-lg rounded-2xl p-4 border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300 ${
+                        isMe ? "ring-2 ring-blue-500/50" : ""
+                      }`}
+                    >
+                      {/* medal badge */}
+                      {idx < 3 && (
+                        <span
+                          className={`
                 material-symbols-outlined absolute top-2 left-2 text-2xl
-                ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-400' : 'text-amber-200'}
-              `}>
-                {idx === 0 ? 'trophy' : idx === 1 ? 'military_tech' : 'workspace_premium'}
-              </span>
-            )}
+                ${idx === 0 ? "text-yellow-400" : idx === 1 ? "text-gray-400" : "text-amber-200"}
+              `}
+                        >
+                          {idx === 0
+                            ? "trophy"
+                            : idx === 1
+                              ? "military_tech"
+                              : "workspace_premium"}
+                        </span>
+                      )}
 
-            {/* online dot */}
-            <div className={`absolute top-2 right-2 w-3 h-3 rounded-full border-2 border-gray-800 ${
-              online ? 'bg-green-400' : 'bg-gray-600'
-            }`} />
+                      {/* online dot */}
+                      <div
+                        className={`absolute top-2 right-2 w-3 h-3 rounded-full border-2 border-gray-800 ${
+                          online ? "bg-green-400" : "bg-gray-600"
+                        }`}
+                      />
 
-<div className="flex flex-col items-center mt-4 text-center">
-  {/* avatar */}
-  <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center shadow-lg mb-2">
-    {info.icon_url ? (
-      <img
-        src={info.icon_url}
-        alt={info.display_name}
-        className="w-full h-full object-cover"
-      />
-    ) : (
-      <span className="text-xl font-bold text-white">
-        {info.display_name.charAt(0)}
-      </span>
-    )}
-  </div>
-  {/* name */}
-  <h3 className="w-full max-w-[5.5rem] truncate font-medium text-sm text-white mb-1">
-    {info.display_name}
-  </h3>
-  {/* score */}
-  <div
-    className={`px-3 py-1 rounded-full text-xs font-bold ${
-      bal > 0
-        ? 'bg-yellow-500/20 text-yellow-400'
-        : bal < 0
-        ? 'bg-red-500/20 text-red-400'
-        : 'bg-gray-600/50 text-gray-300'
-    }`}
-  >
-    {bal.toLocaleString()}pt
-  </div>
-</div>
-          </div>
-        );
-      })}
-  </div>
-</section>
-</main>{/* ポイントラウンドモーダル */}
-</div>
+                      <div className="flex flex-col items-center mt-4 text-center">
+                        {/* avatar */}
+                        <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center shadow-lg mb-2">
+                          {info.icon_url ? (
+                            <img
+                              src={info.icon_url}
+                              alt={info.display_name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-xl font-bold text-white">
+                              {info.display_name.charAt(0)}
+                            </span>
+                          )}
+                        </div>
+                        {/* name */}
+                        <h3 className="w-full max-w-[5.5rem] truncate font-medium text-sm text-white mb-1">
+                          {info.display_name}
+                        </h3>
+                        {/* score */}
+                        <div
+                          className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            bal > 0
+                              ? "bg-yellow-500/20 text-yellow-400"
+                              : bal < 0
+                                ? "bg-red-500/20 text-red-400"
+                                : "bg-gray-600/50 text-gray-300"
+                          }`}
+                        >
+                          {bal.toLocaleString()}pt
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </section>
+        </main>
+        {/* ポイントラウンドモーダル */}
+      </div>
       {showPointModal && (
         <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-purple-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
           <div className="w-full max-w-md bg-gradient-to-br from-gray-900/90 via-gray-800/80 to-gray-900/90 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
@@ -2474,19 +2092,21 @@ useEffect(() => {
             className="text-green-300 text-sm mt-1 animate-fade-in-up"
             style={{ animationDelay: "0.2s" }}
           >
-            Round completed successfully
+            PON completed successfully
           </p>
         </div>
       )}
       {showHistoryModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in">
-<div className="
+          <div
+            className="
   w-full h-full
   sm:w-[calc(100%-2rem)] sm:max-w-3xl sm:h-[80vh]
   bg-gray-900/90 … 
   rounded-none sm:rounded-2xl
   overflow-hidden flex flex-col
-">
+"
+          >
             {/* ヘッダー + タブ */}
             <div className="bg-gray-800/80 px-6 py-4 flex flex-col">
               <div className="flex items-center justify-end mb-2">
@@ -2505,15 +2125,13 @@ useEffect(() => {
                   <button
                     key={type}
                     onClick={() => setHistoryType(type as "PON" | "SATO")}
-                    className={`
-                                                             relative pb-2 text-sm font-medium transition
-                                                             ${
-                                                               historyType ===
-                                                               type
-                                                                 ? "text-white"
-                                                                 : "text-gray-400 hover:text-gray-200"
-                                                             }
-                                                             `}
+                    className={`relative pb-2 text-sm font-medium transition
+                                                            ${
+                                                              historyType ===
+                                                              type
+                                                                ? "text-white"
+                                                                : "text-gray-400 hover:text-gray-200"
+                                                            } `}
                   >
                     {type}
                     {historyType === type && (
@@ -2535,116 +2153,125 @@ useEffect(() => {
                   </p>
                 </div>
               ) : (
-[...filteredHistory]
-  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  .map((rec) => {
-    const sender = rec.points.find((p) => p.value > 0)!;
-    const receiver = rec.points.find((p) => p.value < 0)!;
-    const amount = Math.abs(sender.value);
+                [...filteredHistory]
+                  .sort(
+                    (a, b) =>
+                      new Date(b.created_at).getTime() -
+                      new Date(a.created_at).getTime()
+                  )
+                  .map((rec) => {
+                    const sender = rec.points.find((p) => p.value > 0)!;
+                    const receiver = rec.points.find((p) => p.value < 0)!;
+                    const amount = Math.abs(sender.value);
 
-    if (historyType === "SATO") {
-      return (
-        <div
-          key={rec.round_id}
-          className="mx-auto max-w-2xl bg-gray-900/80 border border-gray-700 rounded-2xl p-6 flex flex-col items-center space-y-4"
-        >
-          <div className="w-full flex justify-between items-center mb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <span className="material-symbols-outlined text-white text-sm">
-                  swap_horiz
-                </span>
-              </div>
-              <span className="text-sm font-mono text-blue-300 font-semibold">
-                {rec.round_id}
-              </span>
-            </div>
-            <span className="text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-lg">
-              {new Date(rec.created_at).toLocaleString("ja-JP", {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          </div>
+                    if (historyType === "SATO") {
+                      return (
+                        <div
+                          key={rec.round_id}
+                          className="mx-auto max-w-2xl bg-gray-900/80 border border-gray-700 rounded-2xl p-6 flex flex-col items-center space-y-4"
+                        >
+                          <div className="w-full flex justify-between items-center mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                                <span className="material-symbols-outlined text-white text-sm">
+                                  swap_horiz
+                                </span>
+                              </div>
+                              <span className="text-sm font-mono text-blue-300 font-semibold">
+                                {rec.round_id}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-lg">
+                              {new Date(rec.created_at).toLocaleString(
+                                "ja-JP",
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                }
+                              )}
+                            </span>
+                          </div>
 
-{/* 送金フロー */}
-<div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700 w-full">
-  <div className="flex">
-    {/* From */}
-    <div className="flex-1 flex flex-col items-center">
-      {userMap[sender.uid]?.icon_url ? (
-        <img
-          src={userMap[sender.uid].icon_url}
-          alt={userMap[sender.uid].display_name}
-          className="w-10 h-10 rounded-full object-cover mb-2"
-        />
-      ) : (
-        <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center mb-2 text-white">
-          {userMap[sender.uid]?.display_name.charAt(0)}
-        </div>
-      )}
-      <span
-        className="
+                          {/* 送金フロー */}
+                          <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700 w-full">
+                            <div className="flex">
+                              {/* From */}
+                              <div className="flex-1 flex flex-col items-center">
+                                {userMap[sender.uid]?.icon_url ? (
+                                  <img
+                                    src={userMap[sender.uid].icon_url}
+                                    alt={userMap[sender.uid].display_name}
+                                    className="w-10 h-10 rounded-full object-cover mb-2"
+                                  />
+                                ) : (
+                                  <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center mb-2 text-white">
+                                    {userMap[sender.uid]?.display_name.charAt(
+                                      0
+                                    )}
+                                  </div>
+                                )}
+                                <span
+                                  className="
           text-sm md:text-base font-medium text-green-300 
           truncate whitespace-nowrap 
           max-w-[5rem] sm:max-w-[6rem] lg:max-w-[8rem] 
           text-center
         "
-        title={userMap[sender.uid]?.display_name}
-      >
-        {userMap[sender.uid]?.display_name || sender.uid}
-      </span>
-    </div>
+                                  title={userMap[sender.uid]?.display_name}
+                                >
+                                  {userMap[sender.uid]?.display_name ||
+                                    sender.uid}
+                                </span>
+                              </div>
 
+                              {/* → & Amount */}
+                              <div className="flex-1 flex flex-col items-center justify-center space-y-1">
+                                {/* 大きめの矢印アイコン */}
+                                <span className="material-symbols-outlined text-blue-300 text-2xl md:text-3xl">
+                                  arrow_forward
+                                </span>
 
-{/* → & Amount */}
-<div className="flex-1 flex flex-col items-center justify-center space-y-1">
-  {/* 大きめの矢印アイコン */}
-  <span className="material-symbols-outlined text-blue-300 text-2xl md:text-3xl">
-    arrow_forward
-  </span>
+                                {/* 金額バッジ */}
+                                <div className="inline-flex items-center justify-center bg-yellow-600/20 border border-yellow-500 rounded-full px-4 py-2 min-w-[4rem] md:min-w-[5rem]">
+                                  <span className="text-yellow-300 font-extrabold text-base md:text-lg leading-none truncate">
+                                    {amount}
+                                    <span className="text-xs md:text-sm opacity-80 ml-1">
+                                      sato
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
 
-  {/* 金額バッジ */}
-  <div className="inline-flex items-center justify-center bg-yellow-600/20 border border-yellow-500 rounded-full px-4 py-2 min-w-[4rem] md:min-w-[5rem]">
-    <span className="text-yellow-300 font-extrabold text-base md:text-lg leading-none truncate">
-      {amount}
-      <span className="text-xs md:text-sm opacity-80 ml-1">sato</span>
-    </span>
-  </div>
-</div>
-
-    {/* To */}
-    <div className="flex-1 flex flex-col items-center">
-      {userMap[receiver.uid]?.icon_url ? (
-        <img
-          src={userMap[receiver.uid].icon_url}
-          alt={userMap[receiver.uid].display_name}
-          className="w-10 h-10 rounded-full object-cover mb-2"
-        />
-      ) : (
-        <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center mb-2 text-white">
-          {userMap[receiver.uid]?.display_name.charAt(0)}
-        </div>
-      )}
-      <span
-        className="
-          text-sm md:text-base font-medium text-blue-300 
-          truncate whitespace-nowrap 
-          max-w-[5rem] sm:max-w-[6rem] lg:max-w-[8rem] 
-          text-center
-        "
-        title={userMap[receiver.uid]?.display_name}
-      >
-        {userMap[receiver.uid]?.display_name || receiver.uid}
-      </span>
-    </div>
-  </div>
-</div>
-        </div>
-      );
-    }
+                              {/* To */}
+                              <div className="flex-1 flex flex-col items-center">
+                                {userMap[receiver.uid]?.icon_url ? (
+                                  <img
+                                    src={userMap[receiver.uid].icon_url}
+                                    alt={userMap[receiver.uid].display_name}
+                                    className="w-10 h-10 rounded-full object-cover mb-2"
+                                  />
+                                ) : (
+                                  <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center mb-2 text-white">
+                                    {userMap[receiver.uid]?.display_name.charAt(
+                                      0
+                                    )}
+                                  </div>
+                                )}
+                                <span
+                                  className=" text-sm md:text-base font-medium text-blue-300 truncate whitespace-nowrap max-w-[5rem] sm:max-w-[6rem] lg:max-w-[8rem] text-center"
+                                  title={userMap[receiver.uid]?.display_name}
+                                >
+                                  {userMap[receiver.uid]?.display_name ||
+                                    receiver.uid}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
                       <div
                         key={rec.round_id}
@@ -2655,7 +2282,7 @@ useEffect(() => {
                           <div className="flex items-center gap-2">
                             <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
                               <span className="material-symbols-outlined text-white text-sm">
-                              leaderboard
+                                leaderboard
                               </span>
                             </div>
                             <span className="text-sm font-mono text-sky-400 font-semibold">
@@ -2835,67 +2462,77 @@ useEffect(() => {
                   return myBalance < 0 && theirBal > 0;
                 }).length > 0 ? (
                   <div className="grid grid-cols-3 gap-3">
-{room.members
-  .filter((m: any) => {
-    if (m.uid === me.uid) return false;
-    const theirBal = balances[m.uid] || 0;
-    return myBalance < 0 && theirBal > 0;
-  })
-  .map((m: any) => {
-    // userMap から情報を取得
-    const user = userMap[m.uid] ?? { display_name: m.uid, icon_url: "" };
-    const maxPay = Math.min(-myBalance, balances[m.uid] || 0);
-    const isSel = settleInput.to_uid === m.uid;
+                    {room.members
+                      .filter((m: any) => {
+                        if (m.uid === me.uid) return false;
+                        const theirBal = balances[m.uid] || 0;
+                        return myBalance < 0 && theirBal > 0;
+                      })
+                      .map((m: any) => {
+                        // userMap から情報を取得
+                        const user = userMap[m.uid] ?? {
+                          display_name: m.uid,
+                          icon_url: "",
+                        };
+                        const maxPay = Math.min(
+                          -myBalance,
+                          balances[m.uid] || 0
+                        );
+                        const isSel = settleInput.to_uid === m.uid;
 
-    return (
-      <button
-        key={m.uid}
-        onClick={() => setSettleInput({ to_uid: m.uid, amount: 0 })}
-        className={`relative flex flex-col items-center p-4 rounded-2xl border-2 transition-all duration-300 transform hover:scale-105 group ${
-          isSel
-            ? "border-purple-400/60 bg-gradient-to-br from-purple-600/20 to-indigo-600/20 shadow-lg shadow-purple-500/20"
-            : "border-gray-600/40 bg-gradient-to-br from-gray-700/40 to-gray-800/40 hover:border-purple-400/40"
-        }`}
-      >
-        {isSel && (
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-2xl animate-pulse" />
-        )}
+                        return (
+                          <button
+                            key={m.uid}
+                            onClick={() =>
+                              setSettleInput({ to_uid: m.uid, amount: 0 })
+                            }
+                            className={`relative flex flex-col items-center p-4 rounded-2xl border-2 transition-all duration-300 transform hover:scale-105 group ${
+                              isSel
+                                ? "border-purple-400/60 bg-gradient-to-br from-purple-600/20 to-indigo-600/20 shadow-lg shadow-purple-500/20"
+                                : "border-gray-600/40 bg-gradient-to-br from-gray-700/40 to-gray-800/40 hover:border-purple-400/40"
+                            }`}
+                          >
+                            {isSel && (
+                              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-2xl animate-pulse" />
+                            )}
 
-        {/* アイコン or イニシャル */}
-        <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
-          {user.icon_url ? (
-            <img
-              src={user.icon_url}
-              alt={user.display_name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gray-600 text-white font-bold text-lg">
-              {user.display_name.charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
+                            {/* アイコン or イニシャル */}
+                            <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
+                              {user.icon_url ? (
+                                <img
+                                  src={user.icon_url}
+                                  alt={user.display_name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gray-600 text-white font-bold text-lg">
+                                  {user.display_name.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                            </div>
 
-        {/* 表示名 */}
-        <span
-          className={`text-sm font-medium truncate w-full text-center ${
-            isSel ? "text-purple-300" : "text-gray-300"
-          }`}
-        >
-          {user.display_name}
-        </span>
+                            {/* 表示名 */}
+                            <span
+                              className={`text-sm font-medium truncate w-full text-center ${
+                                isSel ? "text-purple-300" : "text-gray-300"
+                              }`}
+                            >
+                              {user.display_name}
+                            </span>
 
-        {/* Max */}
-        <div
-          className={`text-xs mt-1 px-2 py-0.5 rounded-full ${
-            isSel ? "bg-purple-500/20 text-purple-300" : "bg-gray-600/40 text-gray-400"
-          }`}
-        >
-          Max: {maxPay.toLocaleString()}
-        </div>
-      </button>
-    );
-  })}
+                            {/* Max */}
+                            <div
+                              className={`text-xs mt-1 px-2 py-0.5 rounded-full ${
+                                isSel
+                                  ? "bg-purple-500/20 text-purple-300"
+                                  : "bg-gray-600/40 text-gray-400"
+                              }`}
+                            >
+                              Max: {maxPay.toLocaleString()}
+                            </div>
+                          </button>
+                        );
+                      })}
                   </div>
                 ) : (
                   <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-2xl p-4 flex items-center gap-3">
@@ -2914,7 +2551,6 @@ useEffect(() => {
               {/* 金額入力＆送信 */}
               {settleInput.to_uid && (
                 <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-5 border border-gray-600/30">
-
                   {(() => {
                     const maxPay = Math.min(
                       -myBalance,
@@ -3006,74 +2642,89 @@ useEffect(() => {
         </div>
       )}
 
-{showSettingsModal && (
-  <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
-    <div className="w-full h-full sm:w-full sm:max-w-lg sm:h-auto bg-gray-800/90 rounded-none sm:rounded-2xl shadow-2xl animate-scale-up overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between items-center bg-gray-900/80 px-6 py-4 border-b border-gray-700">
-        <h2 className="text-lg font-semibold text-white">Room Settings</h2>
-        <button
-          onClick={() => setShowSettingsModal(false)}
-          className="p-2 rounded hover:bg-gray-700/40"
-        >
-          <span className="material-symbols-outlined text-white">close</span>
-        </button>
-      </div>
-      {/* Body */}
-      <div className="px-6 py-5 space-y-5">
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Name</label>
-          {room.created_by === me.uid ? (
-            <input
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-              maxLength={20}
-              className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
-            />
-          ) : (
-            <p className="text-white">{room.name}</p>
-          )}
+      {showSettingsModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
+          <div className="w-full h-full sm:w-full sm:max-w-lg sm:h-auto bg-gray-800/90 rounded-none sm:rounded-2xl shadow-2xl animate-scale-up overflow-hidden">
+            {/* Header */}
+            <div className="flex justify-between items-center bg-gray-900/80 px-6 py-4 border-b border-gray-700">
+              <h2 className="text-lg font-semibold text-white">
+                Room Settings
+              </h2>
+              <button
+                onClick={() => setShowSettingsModal(false)}
+                className="p-2 rounded hover:bg-gray-700/40"
+              >
+                <span className="material-symbols-outlined text-white">
+                  close
+                </span>
+              </button>
+            </div>
+            {/* Body */}
+            <div className="px-6 py-5 space-y-5">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Name</label>
+                {room.created_by === me.uid ? (
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    maxLength={20}
+                    className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
+                  />
+                ) : (
+                  <p className="text-white">{room.name}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Description
+                </label>
+                {room.created_by === me.uid ? (
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    maxLength={100}
+                    rows={3}
+                    className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
+                  />
+                ) : (
+                  <p className="text-gray-200">{room.description || "None"}</p>
+                )}
+              </div>
+              {/* Controls */}
+              <div className="flex flex-col space-y-3">
+                {room.created_by === me.uid && (
+                  <button
+                    onClick={handleUpdateRoom}
+                    disabled={updating}
+                    className={`w-full py-2 rounded-full text-white font-medium transition ${
+                      updating
+                        ? "bg-indigo-600/50 cursor-not-allowed"
+                        : "bg-indigo-500 hover:bg-indigo-600"
+                    }`}
+                  >
+                    {updating ? "Updating..." : "Update"}
+                  </button>
+                )}
+                <button
+                  onClick={
+                    room.created_by === me.uid
+                      ? handleDeleteRoom
+                      : handleLeaveRoom
+                  }
+                  className="w-full py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition"
+                >
+                  {room.created_by === me.uid ? "Delete Room" : "Leave Room"}
+                </button>
+              </div>
+              {errorMessage && (
+                <p className="text-red-400 text-sm text-center">
+                  {errorMessage}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Description</label>
-          {room.created_by === me.uid ? (
-            <textarea
-              value={editDesc}
-              onChange={e => setEditDesc(e.target.value)}
-              maxLength={100}
-              rows={3}
-              className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
-            />
-          ) : (
-            <p className="text-gray-200">{room.description || "None"}</p>
-          )}
-        </div>
-        {/* Controls */}
-        <div className="flex flex-col space-y-3">
-          {room.created_by === me.uid && (
-            <button
-              onClick={handleUpdateRoom}
-              disabled={updating}
-              className={`w-full py-2 rounded-full text-white font-medium transition ${
-                updating ? "bg-indigo-600/50 cursor-not-allowed" : "bg-indigo-500 hover:bg-indigo-600"
-              }`}
-            >
-              {updating ? "Updating..." : "Update"}
-            </button>
-          )}
-          <button
-            onClick={room.created_by === me.uid ? handleDeleteRoom : handleLeaveRoom}
-            className="w-full py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition"
-          >
-            {room.created_by === me.uid ? "Delete Room" : "Leave Room"}
-          </button>
-        </div>
-        {errorMessage && <p className="text-red-400 text-sm text-center">{errorMessage}</p>}
-      </div>
-    </div>
-  </div>
-)}
-
+      )}
 
       {/* 精算リクエスト承認モーダル */}
       {pendingReq && (
@@ -3096,47 +2747,47 @@ useEffect(() => {
                 </h2>
               </div>
 
-{/* リクエスト詳細 */}
-<div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30">
-  {(() => {
-    // ユーザー情報を取得
-    const user = userMap[pendingReq.from_uid] ?? {
-      display_name: pendingReq.from_uid,
-      icon_url: "",
-    };
-    return (
-      <div className="flex items-center gap-4 mb-4">
-        {/* アバター */}
-        <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
-          {user.icon_url ? (
-            <img
-              src={user.icon_url}
-              alt={user.display_name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
-              {user.display_name.charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
-        {/* 表示名 */}
-        <div>
-          <p className="text-white font-semibold">
-            {user.display_name}
-          </p>
-        </div>
-      </div>
-    );
-  })()}
+              {/* リクエスト詳細 */}
+              <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30">
+                {(() => {
+                  // ユーザー情報を取得
+                  const user = userMap[pendingReq.from_uid] ?? {
+                    display_name: pendingReq.from_uid,
+                    icon_url: "",
+                  };
+                  return (
+                    <div className="flex items-center gap-4 mb-4">
+                      {/* アバター */}
+                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
+                        {user.icon_url ? (
+                          <img
+                            src={user.icon_url}
+                            alt={user.display_name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
+                            {user.display_name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      {/* 表示名 */}
+                      <div>
+                        <p className="text-white font-semibold">
+                          {user.display_name}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
 
-  <div className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-400/30 rounded-xl p-4 text-center">
-    <p className="text-yellow-300 font-bold text-2xl">
-      {pendingReq.amount.toLocaleString()}
-      <span className="text-base opacity-80 ml-1">sato</span>
-    </p>
-  </div>
-</div>
+                <div className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-400/30 rounded-xl p-4 text-center">
+                  <p className="text-yellow-300 font-bold text-2xl">
+                    {pendingReq.amount.toLocaleString()}
+                    <span className="text-base opacity-80 ml-1">sato</span>
+                  </p>
+                </div>
+              </div>
               {/* アクションボタン */}
               <div className="flex gap-3">
                 <button
@@ -3200,31 +2851,51 @@ useEffect(() => {
 --- FILE: ./components/auth/AnimationSplash.tsx ---
 
 import React, { useEffect, useState } from "react";
-import styles from "./AnimationSplash.module.css"; // CSSモジュールをインポート
+import styles from "./AnimationSplash.module.css"; // Import CSS module
 
-const LETTERS = ["S", "A", "T", "O"];
+const LETTERS = ["S", "A", "T", "O"]; // Characters to animate
 
 export default function AnimationSplash({ show = true }: { show?: boolean }) {
-  const [phase, setPhase] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(0);
+  const [shouldFadeOut, setShouldFadeOut] = useState(false);
+  const [isAnimationComplete, setIsAnimationComplete] = useState(false);
+
+  // Animation parameters
+  const CHAR_ANIMATION_DURATION_S = 0.7; // Duration of individual character animation in seconds
+  const CHAR_DELAY_INCREMENT_S = 0.25; // Delay between each character's animation start in seconds
+  const FADE_OUT_START_DELAY_S = 1.0; // Delay before the whole splash fades out after all characters appear
+  const FADE_OUT_DURATION_S = 1.2; // Duration of the fade-out animation in seconds
 
   useEffect(() => {
-    if (!show) return;
-    const timers: NodeJS.Timeout[] = [];
-    timers.push(setTimeout(() => setPhase(1), 100));
-    timers.push(setTimeout(() => setPhase(2), 300));
-    timers.push(setTimeout(() => setPhase(3), 500));
-    timers.push(setTimeout(() => setPhase(4), 700));
-    timers.push(setTimeout(() => setPhase(5), 900));
-    timers.push(setTimeout(() => setPhase(6), 2500));
-    return () => timers.forEach(clearTimeout);
+    if (!show) {
+      setShouldFadeOut(false);
+      setIsAnimationComplete(false);
+      return;
+    }
+
+    const totalCharAppearTime = (LETTERS.length - 1) * CHAR_DELAY_INCREMENT_S + CHAR_ANIMATION_DURATION_S;
+    const fadeOutTriggerTime = totalCharAppearTime + FADE_OUT_START_DELAY_S;
+    const totalAnimationTime = fadeOutTriggerTime + FADE_OUT_DURATION_S;
+
+    const fadeOutTimer = setTimeout(() => {
+      setShouldFadeOut(true);
+    }, fadeOutTriggerTime * 1000);
+
+    const completeTimer = setTimeout(() => {
+      setIsAnimationComplete(true);
+    }, totalAnimationTime * 1000);
+
+    return () => {
+      clearTimeout(fadeOutTimer);
+      clearTimeout(completeTimer);
+    };
   }, [show]);
 
-  if (!show || phase === 0) return null;
+  if (!show || isAnimationComplete) return null;
 
   return (
     <div
       className={`
-        ${phase === 0 ? "hidden" : "fixed inset-0"}
+        fixed inset-0
         w-screen h-screen
         flex items-center justify-center
         bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950
@@ -3234,23 +2905,20 @@ export default function AnimationSplash({ show = true }: { show?: boolean }) {
       <div
         className={`
           flex
-          font-extrabold text-[8rem] md:text-[5rem] sm:text-[3rem]
+          font-extrabold text-8xl md:text-7xl sm:text-5xl
           text-white
           drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]
           perspective-[1000px]
           space-x-2
-          ${phase >= 6 ? styles.fadeOutShrink : ""}
+          ${shouldFadeOut ? styles.fadeOutShrink : ""}
         `}
       >
         {LETTERS.map((ch, i) => (
           <span
             key={i}
-            className={`
-              ${styles.satoChar}
-              ${phase >= i + 2 ? styles.charAppear : ""}
-            `}
+            className={`${styles.satoChar} ${styles.charAppear}`}
             style={{
-              animationDelay: phase >= i + 2 ? `${i * 0.1}s` : "0s",
+              animationDelay: `${i * CHAR_DELAY_INCREMENT_S}s`,
             }}
           >
             {ch}
@@ -3301,7 +2969,9 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
   const wsRef = useRef<WebSocket | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [wsReady, setWsReady] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState<Record<string, Set<string>>>({});
+  const [onlineUsers, setOnlineUsers] = useState<Record<string, Set<string>>>(
+    {}
+  );
   const subscribedRooms = useRef<Set<string>>(new Set());
   const enteredRooms = useRef<Set<string>>(new Set());
   const listeners = useRef<Set<(ev: Event) => void>>(new Set());
@@ -3457,12 +3127,10 @@ export const usePresence = (): PresenceContextValue => {
 };
 
 
-
 --- FILE: ./lib/api.ts ---
 
 // src/lib/api.ts
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 
 type ApiOptions = {
   method?: string;
@@ -3472,7 +3140,7 @@ type ApiOptions = {
 };
 
 async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  let token = options.token;
+  const token = options.token;
   if (!token) throw new Error("JWT token required");
   const res = await fetch(`${API_BASE}${path}`, {
     method: options.method || "GET",
@@ -3498,11 +3166,11 @@ export const getUserPointHistory = (token: string) =>
   api("/users/me/points/history", { token });
 export const getUserSettleHistory = (token: string) =>
   api("/users/me/settle/history", { token });
-export const getListUsers = (token: string) => api("/users", {token});
+export const getListUsers = (token: string) => api("/users", { token });
 
 export async function createUser(
   token: string,
-  { display_name, email, icon_url },
+  { display_name, email, icon_url }
 ) {
   return api("/users", {
     method: "POST",
@@ -3513,7 +3181,7 @@ export async function createUser(
 // --- ルーム ---
 export const createRoom = (
   token: string,
-  room: { name: string; description?: string; color_id: number },
+  room: { name: string; description?: string; color_id: number }
 ) => api("/rooms", { method: "POST", token, body: room });
 export const listRooms = (token: string) => api("/rooms", { token });
 
@@ -3526,7 +3194,7 @@ export const getRoom = (token: string, room_id: string) =>
 export const updateRoom = (
   token: string,
   room_id: string,
-  updates: Partial<{ name: string; description: string; color_id: number }>,
+  updates: Partial<{ name: string; description: string; color_id: number }>
 ) => api(`/rooms/${room_id}`, { method: "PUT", token, body: updates });
 export const deleteRoom = (token: string, room_id: string) =>
   api(`/rooms/${room_id}`, { method: "DELETE", token });
@@ -3539,7 +3207,7 @@ export const leaveRoom = (token: string, room_id: string) =>
 export const approveMember = (
   token: string,
   room_id: string,
-  applicant_user_id: string,
+  applicant_user_id: string
 ) =>
   api(`/rooms/${room_id}/approve`, {
     method: "POST",
@@ -3549,7 +3217,7 @@ export const approveMember = (
 export const rejectMember = (
   token: string,
   room_id: string,
-  applicant_user_id: string,
+  applicant_user_id: string
 ) =>
   api(`/rooms/${room_id}/reject`, {
     method: "POST",
@@ -3562,7 +3230,7 @@ export const addPoints = (
   token: string,
   room_id: string,
   points: Array<{ uid: string; value: number }>,
-  approved_by: string[],
+  approved_by: string[]
 ) =>
   api(`/rooms/${room_id}/points`, {
     method: "POST",
@@ -3574,7 +3242,7 @@ export const getPointHistory = (token: string, room_id: string) =>
 export const approvePoint = (
   token: string,
   room_id: string,
-  round_id: string,
+  round_id: string
 ) =>
   api(`/rooms/${room_id}/points/${round_id}/approve`, {
     method: "POST",
@@ -3583,12 +3251,12 @@ export const approvePoint = (
 export const getPointStatus = (
   token: string,
   room_id: string,
-  round_id: string,
+  round_id: string
 ) => api(`/rooms/${room_id}/points/${round_id}/status`, { token });
 export const deletePointRecord = (
   token: string,
   room_id: string,
-  round_id: string,
+  round_id: string
 ) => api(`/rooms/${room_id}/points/${round_id}`, { method: "DELETE", token });
 
 export const startPointRound = (token: string, room_id: string) =>
@@ -3598,7 +3266,7 @@ export const submitPoint = (
   token: string,
   room_id: string,
   uid: string,
-  value: number,
+  value: number
 ) =>
   api(`/rooms/${room_id}/points/submit`, {
     method: "POST",
@@ -3612,7 +3280,7 @@ export const settle = (
   token: string,
   room_id: string,
   to_uid: string,
-  amount: number,
+  amount: number
 ) =>
   api(`/rooms/${room_id}/settle`, {
     method: "POST",
@@ -3622,7 +3290,7 @@ export const settle = (
 export const approveSettlement = (
   token: string,
   room_id: string,
-  settlement_id: string,
+  settlement_id: string
 ) =>
   api(`/rooms/${room_id}/settle/${settlement_id}/approve`, {
     method: "POST",
@@ -3635,7 +3303,7 @@ export const requestSettlement = (
   token: string,
   room_id: string,
   to_uid: string,
-  amount: number,
+  amount: number
 ) =>
   api(`/rooms/${room_id}/settle/request`, {
     method: "POST",
@@ -3646,27 +3314,27 @@ export const requestSettlement = (
 export const approveSettlementRequest = (
   token: string,
   room_id: string,
-  from_uid: string,
+  from_uid: string
 ) =>
-  api(
-    `/rooms/${room_id}/settle/request/${from_uid}/approve`,
-    { method: "POST", token },
-  );
+  api(`/rooms/${room_id}/settle/request/${from_uid}/approve`, {
+    method: "POST",
+    token,
+  });
 
 export const rejectSettlementRequest = (
   token: string,
   room_id: string,
-  from_uid: string,
+  from_uid: string
 ) =>
-  api(
-    `/rooms/${room_id}/settle/request/${from_uid}/reject`,
-    { method: "POST", token },
-  );
+  api(`/rooms/${room_id}/settle/request/${from_uid}/reject`, {
+    method: "POST",
+    token,
+  });
 
 
 --- FILE: ./lib/firebaseClient.ts ---
 
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {

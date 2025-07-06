@@ -1,6 +1,5 @@
 // src/lib/api.ts
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 
 type ApiOptions = {
   method?: string;
@@ -10,7 +9,7 @@ type ApiOptions = {
 };
 
 async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  let token = options.token;
+  const token = options.token;
   if (!token) throw new Error("JWT token required");
   const res = await fetch(`${API_BASE}${path}`, {
     method: options.method || "GET",
@@ -36,11 +35,11 @@ export const getUserPointHistory = (token: string) =>
   api("/users/me/points/history", { token });
 export const getUserSettleHistory = (token: string) =>
   api("/users/me/settle/history", { token });
-export const getListUsers = (token: string) => api("/users", {token});
+export const getListUsers = (token: string) => api("/users", { token });
 
 export async function createUser(
   token: string,
-  { display_name, email, icon_url },
+  { display_name, email, icon_url }
 ) {
   return api("/users", {
     method: "POST",
@@ -51,7 +50,7 @@ export async function createUser(
 // --- ルーム ---
 export const createRoom = (
   token: string,
-  room: { name: string; description?: string; color_id: number },
+  room: { name: string; description?: string; color_id: number }
 ) => api("/rooms", { method: "POST", token, body: room });
 export const listRooms = (token: string) => api("/rooms", { token });
 
@@ -64,7 +63,7 @@ export const getRoom = (token: string, room_id: string) =>
 export const updateRoom = (
   token: string,
   room_id: string,
-  updates: Partial<{ name: string; description: string; color_id: number }>,
+  updates: Partial<{ name: string; description: string; color_id: number }>
 ) => api(`/rooms/${room_id}`, { method: "PUT", token, body: updates });
 export const deleteRoom = (token: string, room_id: string) =>
   api(`/rooms/${room_id}`, { method: "DELETE", token });
@@ -77,7 +76,7 @@ export const leaveRoom = (token: string, room_id: string) =>
 export const approveMember = (
   token: string,
   room_id: string,
-  applicant_user_id: string,
+  applicant_user_id: string
 ) =>
   api(`/rooms/${room_id}/approve`, {
     method: "POST",
@@ -87,7 +86,7 @@ export const approveMember = (
 export const rejectMember = (
   token: string,
   room_id: string,
-  applicant_user_id: string,
+  applicant_user_id: string
 ) =>
   api(`/rooms/${room_id}/reject`, {
     method: "POST",
@@ -100,7 +99,7 @@ export const addPoints = (
   token: string,
   room_id: string,
   points: Array<{ uid: string; value: number }>,
-  approved_by: string[],
+  approved_by: string[]
 ) =>
   api(`/rooms/${room_id}/points`, {
     method: "POST",
@@ -112,7 +111,7 @@ export const getPointHistory = (token: string, room_id: string) =>
 export const approvePoint = (
   token: string,
   room_id: string,
-  round_id: string,
+  round_id: string
 ) =>
   api(`/rooms/${room_id}/points/${round_id}/approve`, {
     method: "POST",
@@ -121,12 +120,12 @@ export const approvePoint = (
 export const getPointStatus = (
   token: string,
   room_id: string,
-  round_id: string,
+  round_id: string
 ) => api(`/rooms/${room_id}/points/${round_id}/status`, { token });
 export const deletePointRecord = (
   token: string,
   room_id: string,
-  round_id: string,
+  round_id: string
 ) => api(`/rooms/${room_id}/points/${round_id}`, { method: "DELETE", token });
 
 export const startPointRound = (token: string, room_id: string) =>
@@ -136,7 +135,7 @@ export const submitPoint = (
   token: string,
   room_id: string,
   uid: string,
-  value: number,
+  value: number
 ) =>
   api(`/rooms/${room_id}/points/submit`, {
     method: "POST",
@@ -150,7 +149,7 @@ export const settle = (
   token: string,
   room_id: string,
   to_uid: string,
-  amount: number,
+  amount: number
 ) =>
   api(`/rooms/${room_id}/settle`, {
     method: "POST",
@@ -160,7 +159,7 @@ export const settle = (
 export const approveSettlement = (
   token: string,
   room_id: string,
-  settlement_id: string,
+  settlement_id: string
 ) =>
   api(`/rooms/${room_id}/settle/${settlement_id}/approve`, {
     method: "POST",
@@ -173,7 +172,7 @@ export const requestSettlement = (
   token: string,
   room_id: string,
   to_uid: string,
-  amount: number,
+  amount: number
 ) =>
   api(`/rooms/${room_id}/settle/request`, {
     method: "POST",
@@ -184,19 +183,19 @@ export const requestSettlement = (
 export const approveSettlementRequest = (
   token: string,
   room_id: string,
-  from_uid: string,
+  from_uid: string
 ) =>
-  api(
-    `/rooms/${room_id}/settle/request/${from_uid}/approve`,
-    { method: "POST", token },
-  );
+  api(`/rooms/${room_id}/settle/request/${from_uid}/approve`, {
+    method: "POST",
+    token,
+  });
 
 export const rejectSettlementRequest = (
   token: string,
   room_id: string,
-  from_uid: string,
+  from_uid: string
 ) =>
-  api(
-    `/rooms/${room_id}/settle/request/${from_uid}/reject`,
-    { method: "POST", token },
-  );
+  api(`/rooms/${room_id}/settle/request/${from_uid}/reject`, {
+    method: "POST",
+    token,
+  });

@@ -10,7 +10,14 @@ import { onAuthStateChanged } from "firebase/auth";
 import * as api from "@/lib/api";
 import { usePresence } from "@/context/PresenceContext";
 import styles from "./Header.module.css";
-import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
+} from "recharts";
+
+
 export default function DashboardPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -130,28 +137,6 @@ useEffect(() => {
 //
 //
 
- const performanceData = useMemo(() => {
-    // me がnullの場合の早期リターン
-    if (!me) return [];
-
-    // PONラウンドのみを抽出し、created_at（作成日時）でソート
-    const ponRoundsHistory = userPointHistory
-      .filter(r => r.round_id.startsWith("PON") && r.created_at) // created_at が存在するPONラウンドのみ
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()); // 古い順にソート
-
-    let runningWins = 0;
-    return ponRoundsHistory.map((round, index) => {
-      const myValue = round.points.find(p => p.uid === me.uid)?.value || 0;
-      if (myValue > 0) runningWins++;
-      return {
-        // 時系列データとして表示するため、日付を使用するか、単純なラウンド番号を使用
-        // ここでは便宜上ラウンド番号を使用しますが、グラフ表示によっては日付も有効です
-        round: index + 1, // 各ラウンドに時系列順のインデックスを割り当て
-        score: myValue,   // そのラウンドのユーザーのスコア
-        winRate: Math.round((runningWins / (index + 1)) * 100) // 累積勝率
-      };
-    });
-  }, [userPointHistory, me]); // userPointHistoryとmeが変更されたときに再計算
 const stats = useMemo(() => {
   // ログインユーザー情報または履歴データがなければ、すべて0を返す
   if (!me || userPointHistory.length === 0) {
@@ -238,7 +223,6 @@ const stats = useMemo(() => {
   // --- 新規: 対戦相手をグループ化したデータ ---
   const groupedOpponents: {
     roundId: string;
-    roomId:string;
     date: string;
     participants: { uid: string; displayName: string; iconUrl: string | null; score: number }[];
   }[] = pon.map(round => {
@@ -255,7 +239,6 @@ const stats = useMemo(() => {
     });
     return {
       roundId: round.round_id,
-      roomId: round.room_id,
       date: date,
       participants: participants,
     };
@@ -788,56 +771,75 @@ const stats = useMemo(() => {
       )}
       {/* Create Room Modal */}
       {showCreateModal && (
-  <div role="dialog" aria-modal="true"
-       className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4 md:p-6 lg:p-8">
-    <div className="relative w-full h-full sm:w-auto sm:h-auto sm:max-w-md md:max-w-lg lg:max-w-xl bg-gray-800/80 border border-gray-600 rounded-none sm:rounded-2xl shadow-2xl backdrop-blur-xl p-6 sm:p-8 lg:p-10 flex flex-col max-h-screen overflow-y-auto">
-      <button onClick={() => { setShowCreateModal(false); setFormError(null); }}
-              aria-label="Close modal"
-              className="absolute top-4 right-4 text-gray-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-full p-2">
-        <span className="material-symbols-outlined text-xl">close</span>
-      </button>
-      <header className="flex items-center mb-6 sm:mb-8">
-        <span className="material-symbols-outlined text-blue-400 text-3xl mr-3">add_circle</span>
-        <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-wide">Create New Room</h2>
-      </header>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-md bg-gradient-to-br from-gray-800/60 to-gray-700/50 border border-gray-600/40 rounded-2xl shadow-xl backdrop-blur-xl p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-white">Create New Room</h2>
+            </div>
 
-      <form className="flex-1 space-y-6">
-        <div>
-          <label htmlFor="room-name" className="block text-gray-300 text-sm font-medium mb-2">
-            Room Name <span className="text-red-400">*</span>
-          </label>
-          <input id="room-name" type="text" placeholder="Enter room name" value={newRoom.name}
-                 maxLength={20}
-                 onChange={e => { setNewRoom({ ...newRoom, name: e.target.value }); setFormError(null); }}
-                 className="w-full px-4 py-3 bg-gray-900/60 text-white placeholder-gray-400 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 shadow-inner" />
-          <p className="text-gray-400 text-xs mt-1 text-right">{newRoom.name.length} / 20</p>
+            <div className="space-y-5">
+              <div>
+                <input
+                  type="text"
+                  placeholder="Enter room name ※"
+                  value={newRoom.name}
+                  onChange={(e) => {
+                    setNewRoom({ ...newRoom, name: e.target.value });
+                    setFormError(null);
+                  }}
+                  maxLength={20}
+                  className="w-full px-4 py-3 bg-gray-800/60 text-white placeholder-gray-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition"
+                />
+                <p className="text-gray-400 text-xs mt-1">
+                  {newRoom.name.length} / 20
+                </p>
+              </div>
+
+              <div>
+                <textarea
+                  placeholder="Enter description"
+                  value={newRoom.description}
+                  onChange={(e) => {
+                    setNewRoom({ ...newRoom, description: e.target.value });
+                    setFormError(null);
+                  }}
+                  maxLength={100}
+                  rows={3}
+                  className="w-full px-4 py-3 bg-gray-800/60 text-white placeholder-gray-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition resize-none"
+                />
+                <p className="text-gray-400 text-xs mt-1">
+                  {newRoom.description.length} / 100
+                </p>
+              </div>
+
+              {/* エラーメッセージ */}
+              {formError && <p className="text-red-400 text-sm">{formError}</p>}
+
+              <div className="flex space-x-3 pt-2">
+                <button
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setFormError(null);
+                  }}
+                  className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateRoom}
+                  className="flex-1 px-4 py-3 bg-green-700 hover:bg-green-600 text-white rounded-md shadow-md hover:shadow-lg transition"
+                >
+                  Create Room
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
+      )}
 
-        <div>
-          <label htmlFor="room-description" className="block text-gray-300 text-sm font-medium mb-2">Description</label>
-          <textarea id="room-description" placeholder="Enter a brief description for your room" value={newRoom.description}
-                    maxLength={100} rows={4}
-                    onChange={e => { setNewRoom({ ...newRoom, description: e.target.value }); setFormError(null); }}
-                    className="w-full px-4 py-3 bg-gray-900/60 text-white placeholder-gray-400 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 resize-none shadow-inner" />
-          <p className="text-gray-400 text-xs mt-1 text-right">{newRoom.description.length} / 100</p>
-        </div>
-        {formError && <p className="text-red-400 text-sm mt-2 text-center">{formError}</p>}
-      </form>
 
-      <div className="flex space-x-4 mt-6">
-        <button onClick={() => { setShowCreateModal(false); setFormError(null); }}
-                className="flex-1 px-5 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors duration-200 font-medium shadow">
-          Cancel
-        </button>
-        <button onClick={handleCreateRoom}
-                className="flex-1 px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-all duration-200 font-bold shadow-lg hover:shadow-xl">
-          Create Room
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-{showProfileModal && (
+
+      {showProfileModal && (
   <div
     className="
       fixed inset-0 bg-black/40 w-full h-screen flex items-center justify-center z-50
@@ -870,11 +872,11 @@ const stats = useMemo(() => {
 
       {/* Header with Avatar & Name */}
       <div className="p-6 sm:p-8 border-b border-gray-700">
-        <div className="flex items-center space-x-4"> {/* アイコンと名前・統計を横並びにするFlexbox */}
-          {/* アバター部分 - クリックで編集モードにはならない */}
+        <div className="flex items-center space-x-6">
           <div
-            className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 overflow-hidden border-4 border-gray-600 shadow-lg flex-shrink-0"
-            title="Your Avatar"
+            onClick={() => setIsEditingName(true)}
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 overflow-hidden border-4 border-gray-600 cursor-pointer shadow-lg transform transition-all duration-300 hover:scale-105 hover:border-blue-400 flex-shrink-0"
+            title="Click to edit display name"
           >
             {me.icon_url ? (
               <img src={me.icon_url} alt={me.display_name} className="w-full h-full object-cover" />
@@ -885,7 +887,7 @@ const stats = useMemo(() => {
             )}
           </div>
 
-          <div className="flex-grow"> {/* 名前と統計情報をまとめるコンテナ */}
+          <div className="flex-grow">
             {isEditingName ? (
               <div className="space-y-3">
                 <input
@@ -919,43 +921,37 @@ const stats = useMemo(() => {
               </div>
             ) : (
               <>
-                {/* 名前部分 - ここをクリックで編集モードに切り替える */}
-                <h2
-                  className="text-2xl sm:text-3xl font-bold text-white mb-1 cursor-pointer hover:text-blue-400 transition-colors leading-tight" /* leading-tightで改行時の行間を詰める */
-                  onClick={() => setIsEditingName(true)}
-                  title="Click to edit display name"
-                >
-                  {me.display_name}
-                </h2>
-                <p className="text-gray-400 text-sm sm:text-base mb-3">{me.email}</p> {/* mb-3で下部に少し余白 */}
-                
-                {/* 統計情報 - 1行でコンパクトに表示 */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-400"> {/* flex-wrapとgapでスマホ対応 */}
-                  <div className="flex items-center space-x-1">
-                    <span className="material-symbols-outlined text-blue-300 text-base">meeting_room</span>
+                <h2 className="text-2xl sm:text-3xl font-bold text-white mb-1">{me.display_name}</h2>
+                <p className="text-gray-400 text-sm sm:text-base">{me.email}</p>
+                <div className="flex items-center space-x-6 mt-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="material-symbols-outlined text-blue-300 text-xl">meeting_room</span>
                     <span className="text-white font-semibold">{rooms.length}</span>
-                    <span>Joined</span>
+                    <span className="text-gray-400 text-sm">Joined</span>
                   </div>
-                  <div className="flex items-center space-x-1">
-                    <span className="material-symbols-outlined text-green-300 text-base">add_box</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="material-symbols-outlined text-green-300 text-xl">add_box</span>
                     <span className="text-white font-semibold">{myRooms.length}</span>
-                    <span>Created</span>
+                    <span className="text-gray-400 text-sm">Created</span>
                   </div>
-                  <div className="flex items-center space-x-1">
-                    <span className="material-symbols-outlined text-purple-300 text-base">people</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="material-symbols-outlined text-purple-300 text-xl">people</span>
                     <span className="text-white font-semibold">{Object.values(onlineUsers).reduce((s, u) => s + u.size, 0)}</span>
-                    <span>Active</span>
+                    <span className="text-gray-400 text-sm">Active</span>
                   </div>
                 </div>
               </>
             )}
           </div>
         </div>
-      </div><div className="flex border-b border-gray-700 overflow-x-auto">
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="flex border-b border-gray-700 overflow-x-auto">
         {[
           { id: 'overview', label: 'Overview', icon: 'dashboard' },
-          { id: 'recent_battles', label: 'PON', icon: 'history' }, // Renamed from 'performance'
-          { id: 'sato_transactions', label: 'SATO ', icon: 'currency_exchange' }, // New tab for SATO
+          { id: 'recent_battles', label: 'Recent Battles', icon: 'history' }, // Renamed from 'performance'
+          { id: 'sato_transactions', label: 'SATO Transactions', icon: 'currency_exchange' }, // New tab for SATO
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1070,6 +1066,15 @@ const stats = useMemo(() => {
           <span className="text-white font-semibold">{stats.ponRounds - stats.wins}</span>
         </div>
         {/* Optional: Add a Total Rounds line if desired, maintaining the new style */}
+        {stats.ponRounds > 0 && (
+          <div className="flex items-center justify-between p-2 rounded-md bg-gray-700/70 shadow-inner">
+            <div className="flex items-center space-x-2">
+              <span className="material-symbols-outlined text-gray-400 text-base">functions</span>
+              <span className="text-gray-200">Total Rounds</span>
+            </div>
+            <span className="text-white font-semibold">{stats.ponRounds}</span>
+          </div>
+        )}
       </div>
     </div>
   </div>
@@ -1088,74 +1093,46 @@ const stats = useMemo(() => {
                 </div>
               ))}
             </div>
-             {/* Logout Button (Moved here) */}
-          <div className="flex justify-center mt-8"> {/* 余白を追加 */}
-      <button
-        onClick={async () => {
-          await signOut(auth);
-          router.replace("/");
-        }}
-        className="
-          px-7 py-3 bg-red-600 hover:bg-red-700 rounded-lg text-white font-semibold
-          flex items-center space-x-2 animate-pop
-          transform hover:scale-105 transition-all duration-200 ease-out
-          shadow-lg
-        "
-      >
-        <span className="material-symbols-outlined text-white">logout</span> {/* アイコンを'logout'に、色を白に */}
-        <span>Log Out</span> {/* テキストも少し調整 */}
-      </button>
-    </div></div>
+          </div>
         )}
 
-{activeTab === 'recent_battles' && (
+        {activeTab === 'recent_battles' && (
           <div className="space-y-6">
             <h3 className="text-xl font-bold text-white flex items-center">
               <span className="material-symbols-outlined text-blue-400 mr-2">history</span>
-              Recent PON
+              Recent Battles (PON)
             </h3>
             {stats.groupedOpponents.length > 0 ? (
               <div className="grid gap-4">
-                {stats.groupedOpponents.map((round, index) => {
- const parts = round.roundId.split(":");
-  const roomId = parts.length === 2 ? parts[1] : null;
-                  return (
-  <Link
-    key={index}
-    href={`/rooms/${round.roomId}`}
-                      className="block bg-gray-800/50 p-4 rounded-xl border border-gray-700
-                                 cursor-pointer hover:bg-gray-700/60 transition-all duration-200" // ホバーエフェクトとカーソル
-                    >
-                      {/* Flexboxコンテナを直接Linkの子要素として配置し、クリック範囲を広げる */}
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-                        <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto mb-3 sm:mb-0">
-                          <div className="text-gray-400 text-sm flex-shrink-0">
-                            <span className="material-symbols-outlined text-xs mr-1">event</span>
-                            {round.date}
-                          </div>
-                          <div className="flex items-center space-x-2 flex-wrap">
-                            {round.participants.map((p) => ( // pIdxは不要なので削除
-                              <div key={p.uid} className="flex items-center space-x-2 bg-gray-700/50 px-3 py-1 rounded-full">
-                                <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-500 flex-shrink-0">
-                                  {p.iconUrl ? (
-                                    <img src={p.iconUrl} alt={p.displayName} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full bg-gradient-to-r from-gray-500 to-gray-600 flex items-center justify-center text-white text-xs font-bold">
-                                      {p.displayName.charAt(0).toUpperCase()}
-                                    </div>
-                                  )}
-                                </div>
-                                <span className={`font-bold text-sm ${p.score > 0 ? 'text-green-400' : p.score < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                                  {p.score > 0 ? `+${p.score}` : p.score}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
+                {stats.groupedOpponents.map((round, index) => (
+                  <div key={index} className="bg-gray-800/50 p-4 rounded-xl border border-gray-700 flex flex-col sm:flex-row items-start sm:items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto mb-3 sm:mb-0">
+                      <div className="text-gray-400 text-sm flex-shrink-0">
+                        <span className="material-symbols-outlined text-xs mr-1">event</span>
+                        {round.date}
                       </div>
-                    </Link>
-                  );
-                })}
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        {round.participants.map((p, pIdx) => (
+                          <div key={p.uid} className="flex items-center space-x-2 bg-gray-700/50 px-3 py-1 rounded-full">
+                            <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-500 flex-shrink-0">
+                              {p.iconUrl ? (
+                                <img src={p.iconUrl} alt={p.displayName} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full bg-gradient-to-r from-gray-500 to-gray-600 flex items-center justify-center text-white text-xs font-bold">
+                                  {p.displayName.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-white text-sm">{p.displayName}</span>
+                            <span className={`font-bold text-sm ${p.score > 0 ? 'text-green-400' : p.score < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                              {p.score > 0 ? `+${p.score}` : p.score}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="text-center py-16">
@@ -1170,32 +1147,9 @@ const stats = useMemo(() => {
                 </p>
               </div>
             )}
-
-            {/* Performance Over Time Chart (変更なし) */}
-            <div className="bg-gray-800/50 p-6 rounded-xl border border-gray-700 mt-6">
-              <h3 className="text-xl font-bold text-white flex items-center">
-                <span className="material-symbols-outlined text-blue-400 mr-2">show_chart</span>
-                Performance Over Time
-              </h3>
-              {performanceData.length > 0 ? (
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={performanceData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis dataKey="round" stroke="#9CA3AF" />
-                      <YAxis stroke="#9CA3AF" />
-                      <Line type="monotone" dataKey="score" stroke="#3B82F6" strokeWidth={2} dot={{ fill: '#3B82F6', r: 3 }} activeDot={{ r: 6 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="text-gray-400 text-center text-sm py-16">
-                  No enough data to show performance over time.
-                </div>
-              )}
-            </div>
           </div>
         )}
+
         {activeTab === 'sato_transactions' && (
           <div className="space-y-6">
             <h3 className="text-xl font-bold text-white flex items-center">
@@ -1269,7 +1223,25 @@ const stats = useMemo(() => {
           </div>
         )}
       </div>
-</div>
+
+      {/* Footer with Logout */}
+    <div className="border-t border-gray-700 p-4 flex justify-center">
+  <button
+    onClick={async () => {
+      await signOut(auth);
+      router.replace("/");
+    }}
+    className="
+      px-7 py-3 bg-purple-300 hover:bg-purple-200 rounded-3xl text-purple-800 font-semibold
+      flex items-center space-x-2 animate-pop mx-auto
+      transform hover:scale-105 transition-all duration-200 ease-out
+      shadow-lg
+    "
+  >
+    <span className="material-symbols-outlined text-purple-600">star</span>
+    <span>Bye-bye!</span>
+  </button>
+</div></div>
   </div>
 )}
 

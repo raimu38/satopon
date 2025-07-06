@@ -13,8 +13,6 @@ export default function AuthPage() {
   const animationTimer = useRef<NodeJS.Timeout | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Ref for our canvas background
 
-  // --- Start of UI Enhancement Logic ---
-
   // Function to draw and animate "SATO" text particles on canvas
   const drawSatoBackground = useCallback(() => {
     const canvas = canvasRef.current;
@@ -23,17 +21,14 @@ export default function AuthPage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Adjust canvas size for responsiveness
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
     let animationFrameId: number;
-    let particles: SatoParticle[] = [];
+    const particles: SatoParticle[] = [];
     const maxParticles = 30; // Number of "SATO" particles
-    // Cool, vibrant color palette for the SATO text
     const colors = ["#A020F0", "#DA70D6", "#9370DB", "#C0C0C0", "#F0E68C"]; // Purple, Orchid, MediumPurple, Silver, Khaki
 
-    // Class to define and animate individual "SATO" text particles
     class SatoParticle {
       x: number;
       y: number;
@@ -50,11 +45,11 @@ export default function AuthPage() {
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
         this.size = Math.random() * 30 + 40; // Larger text sizes for impact
-        this.speedX = (Math.random() * 0.5 - 0.25); // Slow, subtle horizontal movement
-        this.speedY = (Math.random() * 0.5 - 0.25); // Slow, subtle vertical movement
+        this.speedX = Math.random() * 0.5 - 0.25; // Slow, subtle horizontal movement
+        this.speedY = Math.random() * 0.5 - 0.25; // Slow, subtle vertical movement
         this.color = colors[Math.floor(Math.random() * colors.length)];
         this.rotation = Math.random() * Math.PI * 2; // Initial random rotation
-        this.rotationSpeed = (Math.random() * 0.003 - 0.0015); // Very slow rotation
+        this.rotationSpeed = Math.random() * 0.003 - 0.0015; // Very slow rotation
         this.text = "SATO"; // The text to animate
         this.alpha = Math.random() * 0.4 + 0.1; // Varying transparency (10% to 50%)
       }
@@ -100,7 +95,7 @@ export default function AuthPage() {
     function animate() {
       ctx!.clearRect(0, 0, canvas!.width, canvas!.height); // Clear the entire canvas each frame
 
-      particles.forEach(particle => {
+      particles.forEach((particle) => {
         particle.update();
         particle.draw();
       });
@@ -171,7 +166,7 @@ export default function AuthPage() {
         </div>
 
         <p className="text-gray-300 text-base md:text-lg mb-12 text-center max-w-xs md:max-w-md leading-relaxed drop-shadow-lg">
-         Welcome to SATOPON.
+          Welcome to SATOPON.
         </p>
 
         <button
@@ -188,7 +183,9 @@ export default function AuthPage() {
           "
           disabled={isAnimating} // Disable button during animation
         >
-          <span className="material-symbols-outlined text-xl">rocket_launch</span>
+          <span className="material-symbols-outlined text-xl">
+            rocket_launch
+          </span>
           Get Started
         </button>
 

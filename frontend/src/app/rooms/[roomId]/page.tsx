@@ -8,10 +8,6 @@ import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
 import { usePresence } from "@/context/PresenceContext";
 
-type PendingRequest =
-  | { type: "join"; from_uid: string }
-  | { type: "settle"; from_uid: string; amount: number };
-
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const router = useRouter();
@@ -225,75 +221,68 @@ export default function RoomPage() {
   }
 
   // inside RoomPage(), after your existing hooks:
-const totalPon = pointHistory.filter(rec => rec.round_id.startsWith("PON")).length;
-const wins = pointHistory.reduce((acc, rec) => {
-  if (!rec.round_id.startsWith("PON")) return acc;
-  // find highest scorer
-  const top = [...rec.points].sort((a, b) => b.value - a.value)[0];
-  return top.uid === me?.uid ? acc + 1 : acc;
-}, 0);
 
-useEffect(() => {
-  if (!me) return;
-  const off = onEvent((ev) => {
-    if (ev.room_id !== roomId) return;
+  useEffect(() => {
+    if (!me) return;
+    const off = onEvent((ev) => {
+      if (ev.room_id !== roomId) return;
 
-    switch (ev.type) {
-      case "join_request":
-        setJoinQueue((q) => [...q, ev.applicant_uid]);
-        break;
-      case "join_approved":
-      case "join_rejected":
-        setJoinQueue((q) => q.filter((uid) => uid !== ev.applicant_uid));
-        break;
-      case "join_request_cancelled":
-        setJoinQueue((q) => q.filter((uid) => uid !== ev.user_id));
-        break;
-      case "point_round_started":
-        setShowPointModal(true);
-        setIsRoundActive(true);
-        setCurrentRoundId(ev.round_id);
-        setSubmittedBy(new Set());
-        setSubmissions({});
-        setFinalTable(null);
-        setApprovedBy(new Set());
-        break;
-      case "point_submitted":
-        setSubmittedBy((s) => new Set(s).add(ev.uid));
-        setSubmissions((s) => ({ ...s, [ev.uid]: ev.value }));
-        break;
-      case "point_final_table":
-        setIsRoundActive(false);
-        setFinalTable(ev.table);
-        break;
-      case "point_approved":
-        setApprovedBy((s) => new Set(s).add(ev.uid));
-        break;
-      case "point_round_cancelled":
-        cancelPointRound(ev.reason);
-        break;
-      case "settle_requested":
-        if (ev.to_uid === me.uid) {
-          setPendingReq({ from_uid: ev.from_uid, amount: ev.amount });
-        }
-        break;
-      case "settle_rejected":
-        if (ev.from_uid === me.uid) {
-          const rejecter = userMap[ev.to_uid]?.display_name || ev.to_uid;
-          alert(`${rejecter} さんに拒否されました`);
-          setPendingReq(null);
-          setSettleInput({ to_uid: "", amount: 0 });
-          setAmountInput("");
-        }
-        break;
-      case "settle_completed":
-        break;
-      default:
-        break;
-    }
-  });
-  return off;
-}, [onEvent, me, roomId, userMap]);
+      switch (ev.type) {
+        case "join_request":
+          setJoinQueue((q) => [...q, ev.applicant_uid]);
+          break;
+        case "join_approved":
+        case "join_rejected":
+          setJoinQueue((q) => q.filter((uid) => uid !== ev.applicant_uid));
+          break;
+        case "join_request_cancelled":
+          setJoinQueue((q) => q.filter((uid) => uid !== ev.user_id));
+          break;
+        case "point_round_started":
+          setShowPointModal(true);
+          setIsRoundActive(true);
+          setCurrentRoundId(ev.round_id);
+          setSubmittedBy(new Set());
+          setSubmissions({});
+          setFinalTable(null);
+          setApprovedBy(new Set());
+          break;
+        case "point_submitted":
+          setSubmittedBy((s) => new Set(s).add(ev.uid));
+          setSubmissions((s) => ({ ...s, [ev.uid]: ev.value }));
+          break;
+        case "point_final_table":
+          setIsRoundActive(false);
+          setFinalTable(ev.table);
+          break;
+        case "point_approved":
+          setApprovedBy((s) => new Set(s).add(ev.uid));
+          break;
+        case "point_round_cancelled":
+          cancelPointRound(ev.reason);
+          break;
+        case "settle_requested":
+          if (ev.to_uid === me.uid) {
+            setPendingReq({ from_uid: ev.from_uid, amount: ev.amount });
+          }
+          break;
+        case "settle_rejected":
+          if (ev.from_uid === me.uid) {
+            const rejecter = userMap[ev.to_uid]?.display_name || ev.to_uid;
+            alert(`${rejecter} さんに拒否されました`);
+            setPendingReq(null);
+            setSettleInput({ to_uid: "", amount: 0 });
+            setAmountInput("");
+          }
+          break;
+        case "settle_completed":
+          break;
+        default:
+          break;
+      }
+    });
+    return off;
+  }, [onEvent, me, roomId, userMap]);
 
   if (!token || !me)
     return (
@@ -352,327 +341,369 @@ useEffect(() => {
   const myUid = me.uid;
   const onlineCount = ctxOnlineUsers[roomId]?.size || 0;
   const canStartRound = onlineCount >= 2;
-      return (
-  <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-gray-100 flex flex-col relative overflow-hidden">
-    {/* 背景エフェクト */}
-    <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 animate-pulse"></div>
-    <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(120,119,198,0.1),transparent_50%)]"></div>
-    
-{/* Header */}
-<header className="relative z-10 px-4 sm:px-8 py-4 backdrop-blur-lg bg-gray-900/70 border-b border-gray-700/50">
-  <div className="max-w-[1150px] mx-auto flex items-center justify-between">
-    {/* Back Button */}
-    <button
-      onClick={() => router.push("/c420")}
-      className="p-2 rounded-lg hover:bg-gray-800/50 transition-all duration-200 hover:scale-105"
-    >
-      <span className="material-symbols-outlined text-white text-2xl">
-        arrow_back
-      </span>
-    </button>
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-gray-100 flex flex-col relative overflow-hidden">
+      {/* 背景エフェクト */}
+      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-purple-500/5 to-pink-500/5 animate-pulse"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(120,119,198,0.1),transparent_50%)]"></div>
 
-    {/* Title + Online Count */}
-    <div className="flex flex-col items-center">
-      <h1 className="text-xl sm:text-2xl font-bold tracking-wide bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-        {room.name}
-      </h1>
-      <div className="flex items-center gap-2 mt-1">
-        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-        <span className="text-xs text-gray-400">{onlineCount} online</span>
-      </div>
-    </div>
-
-    {/* Settings Button */}
-    <button
-      onClick={() => setShowSettingsModal(true)}
-      className="p-2 rounded-lg hover:bg-gray-800/50 transition-all duration-200 hover:scale-105"
-    >
-      <span className="material-symbols-outlined text-white text-2xl">
-        settings
-      </span>
-    </button>
-  </div>
-</header>
-<div className="w-full">
-    <main className="max-w-[1200px] mx-auto relative z-10 flex-grow overflow-auto px-4 sm:px-8 py-6">
-{/* Player Card */}
-<div className="relative mb-8">
-  {/* background glow */}
-  <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 rounded-3xl blur-xl" />
-
-  {/* card container */}
-  <div className="relative bg-gray-800/80 backdrop-blur-lg rounded-3xl p-4 sm:p-6 border border-gray-700/50">
-    <div className="flex items-center flex-wrap sm:space-x-6">
-      {/* avatar */}
-      <div className="relative flex-shrink-0 mr-4">
-        <div className="absolute inset-0 rounded-full blur-md opacity-50 bg-gradient-to-r from-blue-400 to-purple-500" />
-        <div className="relative w-16 h-16 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 border-4 border-gray-700 overflow-hidden flex items-center justify-center shadow-2xl">
-          {me.icon_url ? (
-            <img
-              src={me.icon_url}
-              alt="Your avatar"
-              className="w-full h-full object-cover rounded-full"
-            />
-          ) : (
-            <span className="text-3xl sm:text-5xl text-white font-bold">
-              {me.display_name.charAt(0).toUpperCase()}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* stats */}
-      <div className="flex-1">
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
-          {/* balance */}
-          <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
-            <span className="material-symbols-outlined text-yellow-400 text-base">monetization_on</span>
-            <span className={`font-semibold ${
-                myBalance > 0 ? "text-yellow-400" :
-                myBalance < 0 ? "text-red-500" :
-                "text-gray-300"
-              }`}>
-              {myBalance.toLocaleString()}
-            </span>
-            <span className="text-xs text-gray-400">sato</span>
-          </div>
-
-          {/* rank */}
-          <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
-            <span className="material-symbols-outlined text-purple-400 text-base">trending_up</span>
-            <span className="font-semibold text-purple-400">
-              {(() => {
-                const sorted = Object.entries(balances).sort(([,a],[,b]) => b - a);
-                return sorted.findIndex(([uid]) => uid === myUid)! + 1;
-              })()}
-            </span>
-            <span className="text-xs text-gray-400">rank</span>
-          </div>
-
-          {/* wins */}
-          <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
-            <span className="material-symbols-outlined text-green-500 text-base">Add</span>
-            <span className="font-semibold text-green-500">
-              {(() => {
-                const pon = pointHistory.filter(r => r.round_id.startsWith("PON"));
-                const w = pon.reduce((c, rec) => {
-                  const meP = rec.points.find(p => p.uid === myUid);
-                  return meP && meP.value > 0 ? c+1 : c;
-                }, 0);
-                return `${w}/${pon.length}`;
-              })()}
-            </span>
-            <span className="text-xs text-gray-400">plus</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-{/* ゲームアクション */}
-      <div className="grid grid-cols-3 gap-3 sm:gap-6 mb-8">
-        {/* SATO */}
-        <button
-          onClick={() => canStartRound && setShowSettleModal(true)}
-          disabled={!canStartRound}
-          className={`group relative overflow-hidden rounded-2xl transition-all duration-300 transform hover:scale-105 ${
-            canStartRound
-              ? "bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-lg hover:shadow-purple-500/25"
-              : "bg-gray-700/50 cursor-not-allowed opacity-50"
-          }`}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-          <div className="relative flex flex-col items-center p-4 sm:p-6">
-            <span className="material-symbols-outlined text-white text-2xl sm:text-3xl mb-2">
-              payments
-            </span>
-            <span className="text-sm sm:text-base font-bold text-white">SATO</span>
-          </div>
-        </button>
-
-        {/* History */}
-        <button
-          onClick={() => setShowHistoryModal(true)}
-          className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 transition-all duration-300 transform hover:scale-105 shadow-lg"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-          <div className="relative flex flex-col items-center p-4 sm:p-6">
-            <span className="material-symbols-outlined text-blue-400 text-2xl sm:text-3xl mb-2">
-              history
-            </span>
-            <span className="text-sm sm:text-base font-bold text-white">History</span>
-          <span className="text-xs text-gray-400 mt-1 hidden sm:block">
-  {pointHistory.filter(r => r.round_id.startsWith("PON")).length} games
-</span>
-</div>
-        </button>
-
-        {/* PON */}
-        <button
-          onClick={() => canStartRound && setShowPointModal(true)}
-          disabled={!canStartRound}
-          className={`group relative overflow-hidden rounded-2xl transition-all duration-300 transform hover:scale-105 ${
-            canStartRound
-              ? isRoundActive
-                ? "bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 text-white ring-2 ring-purple-400 animate-pulse shadow-lg shadow-purple-500/50"
-                : "bg-gradient-to-br from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-lg hover:shadow-indigo-500/25"
-              : "bg-gray-700/50 cursor-not-allowed opacity-50"
-          }`}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-          <div className="relative flex flex-col items-center p-4 sm:p-6">
-            <span className="material-symbols-outlined text-white text-2xl sm:text-3xl mb-2">
-              leaderboard
-            </span>
-            <span className="text-sm sm:text-base font-bold text-white">
-              {isRoundActive ? "Active" : "PON"}
-            </span>
-          </div>
-        </button>
-      </div>
-
-      {/* 待機中のリクエスト */}
-{/* Pending Join Requests */}
-{joinQueue.length > 0 && (
-  <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
-    {/* header */}
-    <h3 className="flex items-center gap-2 text-lg font-bold text-amber-400 mb-3">
-      <span className="material-symbols-outlined">notification_important</span>
-      Join Requests ({joinQueue.length})
-    </h3>
-    {/* list */}
-    <div className="space-y-2 max-h-64 overflow-y-auto">
-      {joinQueue.map((uid) => {
-        const user = userMap[uid] || { display_name: uid };
-        const online = ctxOnlineUsers[roomId]?.has(uid);
-        return (
-          <div
-            key={uid}
-            className="flex items-center justify-between bg-gray-800/50 hover:bg-gray-800/70 rounded-xl p-3 transition-colors"
+      {/* Header */}
+      <header className="relative z-10 px-4 sm:px-8 py-4 backdrop-blur-lg bg-gray-900/70 border-b border-gray-700/50">
+        <div className="max-w-[1150px] mx-auto flex items-center justify-between">
+          {/* Back Button */}
+          <button
+            onClick={() => router.push("/c420")}
+            className="p-2 rounded-lg hover:bg-gray-800/50 transition-all duration-200 hover:scale-105"
           >
-            {/* user info */}
-            <div className="flex items-center gap-3">
-              {/* online indicator */}
-              <span
-                className={`w-3 h-3 rounded-full border-2 border-gray-800 ${
-                  online ? "bg-green-400" : "bg-gray-600"
-                }`}
-                title={online ? "Online" : "Offline"}
-              />
-              {/* avatar */}
-              {user.icon_url ? (
-                <img
-                  src={user.icon_url}
-                  alt={user.display_name}
-                  className="w-10 h-10 rounded-full object-cover shadow-lg"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold text-white shadow-lg">
-                  {user.display_name.charAt(0).toUpperCase()}
+            <span className="material-symbols-outlined text-white text-2xl">
+              arrow_back
+            </span>
+          </button>
+
+          {/* Title + Online Count */}
+          <div className="flex flex-col items-center">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-wide bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              {room.name}
+            </h1>
+            <div className="flex items-center gap-2 mt-1">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span className="text-xs text-gray-400">
+                {onlineCount} online
+              </span>
+            </div>
+          </div>
+
+          {/* Settings Button */}
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className="p-2 rounded-lg hover:bg-gray-800/50 transition-all duration-200 hover:scale-105"
+          >
+            <span className="material-symbols-outlined text-white text-2xl">
+              settings
+            </span>
+          </button>
+        </div>
+      </header>
+      <div className="w-full">
+        <main className="max-w-[1200px] mx-auto relative z-10 flex-grow overflow-auto px-4 sm:px-8 py-6">
+          {/* Player Card */}
+          <div className="relative mb-8">
+            {/* background glow */}
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 rounded-3xl blur-xl" />
+
+            {/* card container */}
+            <div className="relative bg-gray-800/80 backdrop-blur-lg rounded-3xl p-4 sm:p-6 border border-gray-700/50">
+              <div className="flex items-center flex-wrap sm:space-x-6">
+                {/* avatar */}
+                <div className="relative flex-shrink-0 mr-4">
+                  <div className="absolute inset-0 rounded-full blur-md opacity-50 bg-gradient-to-r from-blue-400 to-purple-500" />
+                  <div className="relative w-16 h-16 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 border-4 border-gray-700 overflow-hidden flex items-center justify-center shadow-2xl">
+                    {me.icon_url ? (
+                      <img
+                        src={me.icon_url}
+                        alt="Your avatar"
+                        className="w-full h-full object-cover rounded-full"
+                      />
+                    ) : (
+                      <span className="text-3xl sm:text-5xl text-white font-bold">
+                        {me.display_name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              )}
-              {/* name */}
-              <span className="font-medium text-white truncate">
-                {user.display_name}
-              </span>
-            </div>
-            {/* actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleDecision("approve", uid)}
-                className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium transition-colors"
-              >
-                Accept
-              </button>
-              <button
-                onClick={() => handleDecision("reject", uid)}
-                className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
-              >
-                Reject
-              </button>
+
+                {/* stats */}
+                <div className="flex-1">
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
+                    {/* balance */}
+                    <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
+                      <span className="material-symbols-outlined text-yellow-400 text-base">
+                        monetization_on
+                      </span>
+                      <span
+                        className={`font-semibold ${
+                          myBalance > 0
+                            ? "text-yellow-400"
+                            : myBalance < 0
+                              ? "text-red-500"
+                              : "text-gray-300"
+                        }`}
+                      >
+                        {myBalance.toLocaleString()}
+                      </span>
+                      <span className="text-xs text-gray-400">sato</span>
+                    </div>
+
+                    {/* rank */}
+                    <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
+                      <span className="material-symbols-outlined text-purple-400 text-base">
+                        trending_up
+                      </span>
+                      <span className="font-semibold text-purple-400">
+                        {(() => {
+                          const sorted = Object.entries(balances).sort(
+                            ([, a], [, b]) => b - a
+                          );
+                          return (
+                            sorted.findIndex(([uid]) => uid === myUid)! + 1
+                          );
+                        })()}
+                      </span>
+                      <span className="text-xs text-gray-400">rank</span>
+                    </div>
+
+                    {/* wins */}
+                    <div className="flex items-center gap-1 bg-gray-700/50 rounded-full px-3 py-3 text-sm">
+                      <span className="material-symbols-outlined text-green-500 text-base">
+                        Add
+                      </span>
+                      <span className="font-semibold text-green-500">
+                        {(() => {
+                          const pon = pointHistory.filter((r) =>
+                            r.round_id.startsWith("PON")
+                          );
+                          const w = pon.reduce((c, rec) => {
+                            const meP = rec.points.find((p) => p.uid === myUid);
+                            return meP && meP.value > 0 ? c + 1 : c;
+                          }, 0);
+                          return `${w}/${pon.length}`;
+                        })()}
+                      </span>
+                      <span className="text-xs text-gray-400">plus</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        );
-      })}
-    </div>
-  </div>
-)}
+          {/* ゲームアクション */}
+          <div className="grid grid-cols-3 gap-3 sm:gap-6 mb-8">
+            {/* SATO */}
+            <button
+              onClick={() => canStartRound && setShowSettleModal(true)}
+              disabled={!canStartRound}
+              className={`group relative overflow-hidden rounded-2xl transition-all duration-300 transform hover:scale-105 ${
+                canStartRound
+                  ? "bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-lg hover:shadow-purple-500/25"
+                  : "bg-gray-700/50 cursor-not-allowed opacity-50"
+              }`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+              <div className="relative flex flex-col items-center p-4 sm:p-6">
+                <span className="material-symbols-outlined text-white text-2xl sm:text-3xl mb-2">
+                  payments
+                </span>
+                <span className="text-sm sm:text-base font-bold text-white">
+                  SATO
+                </span>
+              </div>
+            </button>
 
-    {/* Members*/}
-{/* Leaderboard as Members (section and cards) */}
-<section>
-  <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-    <span className="material-symbols-outlined text-green-400">group</span>
-    Members ({room.members.length})
-  </h2>
-  <div className="flex gap-3 overflow-x-auto pb-1 snap-x sm:grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 sm:overflow-visible sm:snap-none">
-    {Object.entries(balances)
-      .sort(([, a], [, b]) => b - a)
-      .map(([uid, bal], idx) => {
-        const info = userMap[uid] || { display_name: uid, icon_url: undefined };
-        const online = ctxOnlineUsers[roomId]?.has(uid);
-        const isMe = uid === myUid;
-        return (
-          <div
-            key={uid}
-            className={`mt-2 relative flex-shrink-0 w-40 sm:w-auto snap-start bg-gray-800/50 backdrop-blur-lg rounded-2xl p-4 border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300 ${
-              isMe ? 'ring-2 ring-blue-500/50' : ''
-            }`}
-          >
-            {/* medal badge */}
-            {idx < 3 && (
-              <span className={`
+            {/* History */}
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 transition-all duration-300 transform hover:scale-105 shadow-lg"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+              <div className="relative flex flex-col items-center p-4 sm:p-6">
+                <span className="material-symbols-outlined text-blue-400 text-2xl sm:text-3xl mb-2">
+                  history
+                </span>
+                <span className="text-sm sm:text-base font-bold text-white">
+                  History
+                </span>
+                <span className="text-xs text-gray-400 mt-1 hidden sm:block">
+                  {
+                    pointHistory.filter((r) => r.round_id.startsWith("PON"))
+                      .length
+                  }{" "}
+                  games
+                </span>
+              </div>
+            </button>
+
+            {/* PON */}
+            <button
+              onClick={() => canStartRound && setShowPointModal(true)}
+              disabled={!canStartRound}
+              className={`group relative overflow-hidden rounded-2xl transition-all duration-300 transform hover:scale-105 ${
+                canStartRound
+                  ? isRoundActive
+                    ? "bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 text-white ring-2 ring-purple-400 animate-pulse shadow-lg shadow-purple-500/50"
+                    : "bg-gradient-to-br from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-lg hover:shadow-indigo-500/25"
+                  : "bg-gray-700/50 cursor-not-allowed opacity-50"
+              }`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+              <div className="relative flex flex-col items-center p-4 sm:p-6">
+                <span className="material-symbols-outlined text-white text-2xl sm:text-3xl mb-2">
+                  leaderboard
+                </span>
+                <span className="text-sm sm:text-base font-bold text-white">
+                  {isRoundActive ? "Active" : "PON"}
+                </span>
+              </div>
+            </button>
+          </div>
+
+          {/* 待機中のリクエスト */}
+          {/* Pending Join Requests */}
+          {joinQueue.length > 0 && (
+            <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
+              {/* header */}
+              <h3 className="flex items-center gap-2 text-lg font-bold text-amber-400 mb-3">
+                <span className="material-symbols-outlined">
+                  notification_important
+                </span>
+                Join Requests ({joinQueue.length})
+              </h3>
+              {/* list */}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {joinQueue.map((uid) => {
+                  const user = userMap[uid] || { display_name: uid };
+                  const online = ctxOnlineUsers[roomId]?.has(uid);
+                  return (
+                    <div
+                      key={uid}
+                      className="flex items-center justify-between bg-gray-800/50 hover:bg-gray-800/70 rounded-xl p-3 transition-colors"
+                    >
+                      {/* user info */}
+                      <div className="flex items-center gap-3">
+                        {/* online indicator */}
+                        <span
+                          className={`w-3 h-3 rounded-full border-2 border-gray-800 ${
+                            online ? "bg-green-400" : "bg-gray-600"
+                          }`}
+                          title={online ? "Online" : "Offline"}
+                        />
+                        {/* avatar */}
+                        {user.icon_url ? (
+                          <img
+                            src={user.icon_url}
+                            alt={user.display_name}
+                            className="w-10 h-10 rounded-full object-cover shadow-lg"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold text-white shadow-lg">
+                            {user.display_name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        {/* name */}
+                        <span className="font-medium text-white truncate">
+                          {user.display_name}
+                        </span>
+                      </div>
+                      {/* actions */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleDecision("approve", uid)}
+                          className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => handleDecision("reject", uid)}
+                          className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Members*/}
+          {/* Leaderboard as Members (section and cards) */}
+          <section>
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <span className="material-symbols-outlined text-green-400">
+                group
+              </span>
+              Members ({room.members.length})
+            </h2>
+            <div className="flex gap-3 overflow-x-auto pb-1 snap-x sm:grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 sm:overflow-visible sm:snap-none">
+              {Object.entries(balances)
+                .sort(([, a], [, b]) => b - a)
+                .map(([uid, bal], idx) => {
+                  const info = userMap[uid] || {
+                    display_name: uid,
+                    icon_url: undefined,
+                  };
+                  const online = ctxOnlineUsers[roomId]?.has(uid);
+                  const isMe = uid === myUid;
+                  return (
+                    <div
+                      key={uid}
+                      className={`mt-2 relative flex-shrink-0 w-40 sm:w-auto snap-start bg-gray-800/50 backdrop-blur-lg rounded-2xl p-4 border border-gray-700/50 hover:border-gray-600/50 transition-all duration-300 ${
+                        isMe ? "ring-2 ring-blue-500/50" : ""
+                      }`}
+                    >
+                      {/* medal badge */}
+                      {idx < 3 && (
+                        <span
+                          className={`
                 material-symbols-outlined absolute top-2 left-2 text-2xl
-                ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-400' : 'text-amber-200'}
-              `}>
-                {idx === 0 ? 'trophy' : idx === 1 ? 'military_tech' : 'workspace_premium'}
-              </span>
-            )}
+                ${idx === 0 ? "text-yellow-400" : idx === 1 ? "text-gray-400" : "text-amber-200"}
+              `}
+                        >
+                          {idx === 0
+                            ? "trophy"
+                            : idx === 1
+                              ? "military_tech"
+                              : "workspace_premium"}
+                        </span>
+                      )}
 
-            {/* online dot */}
-            <div className={`absolute top-2 right-2 w-3 h-3 rounded-full border-2 border-gray-800 ${
-              online ? 'bg-green-400' : 'bg-gray-600'
-            }`} />
+                      {/* online dot */}
+                      <div
+                        className={`absolute top-2 right-2 w-3 h-3 rounded-full border-2 border-gray-800 ${
+                          online ? "bg-green-400" : "bg-gray-600"
+                        }`}
+                      />
 
-<div className="flex flex-col items-center mt-4 text-center">
-  {/* avatar */}
-  <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center shadow-lg mb-2">
-    {info.icon_url ? (
-      <img
-        src={info.icon_url}
-        alt={info.display_name}
-        className="w-full h-full object-cover"
-      />
-    ) : (
-      <span className="text-xl font-bold text-white">
-        {info.display_name.charAt(0)}
-      </span>
-    )}
-  </div>
-  {/* name */}
-  <h3 className="w-full max-w-[5.5rem] truncate font-medium text-sm text-white mb-1">
-    {info.display_name}
-  </h3>
-  {/* score */}
-  <div
-    className={`px-3 py-1 rounded-full text-xs font-bold ${
-      bal > 0
-        ? 'bg-yellow-500/20 text-yellow-400'
-        : bal < 0
-        ? 'bg-red-500/20 text-red-400'
-        : 'bg-gray-600/50 text-gray-300'
-    }`}
-  >
-    {bal.toLocaleString()}pt
-  </div>
-</div>
-          </div>
-        );
-      })}
-  </div>
-</section>
-</main>{/* ポイントラウンドモーダル */}
-</div>
+                      <div className="flex flex-col items-center mt-4 text-center">
+                        {/* avatar */}
+                        <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center shadow-lg mb-2">
+                          {info.icon_url ? (
+                            <img
+                              src={info.icon_url}
+                              alt={info.display_name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-xl font-bold text-white">
+                              {info.display_name.charAt(0)}
+                            </span>
+                          )}
+                        </div>
+                        {/* name */}
+                        <h3 className="w-full max-w-[5.5rem] truncate font-medium text-sm text-white mb-1">
+                          {info.display_name}
+                        </h3>
+                        {/* score */}
+                        <div
+                          className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            bal > 0
+                              ? "bg-yellow-500/20 text-yellow-400"
+                              : bal < 0
+                                ? "bg-red-500/20 text-red-400"
+                                : "bg-gray-600/50 text-gray-300"
+                          }`}
+                        >
+                          {bal.toLocaleString()}pt
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </section>
+        </main>
+        {/* ポイントラウンドモーダル */}
+      </div>
       {showPointModal && (
         <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-purple-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
           <div className="w-full max-w-md bg-gradient-to-br from-gray-900/90 via-gray-800/80 to-gray-900/90 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
@@ -684,7 +715,7 @@ useEffect(() => {
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg">
                     <span className="material-symbols-outlined text-white text-xl">
-                      stars
+                    leaderboard
                     </span>
                   </div>
                   <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent tracking-wide">
@@ -720,7 +751,7 @@ useEffect(() => {
                       <span className="material-symbols-outlined">
                         play_arrow
                       </span>
-                      Start
+                      PON
                     </span>
                   </button>
                 ) : (
@@ -1002,19 +1033,21 @@ useEffect(() => {
             className="text-green-300 text-sm mt-1 animate-fade-in-up"
             style={{ animationDelay: "0.2s" }}
           >
-            Round completed successfully
+            PON completed successfully
           </p>
         </div>
       )}
       {showHistoryModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in">
-<div className="
+          <div
+            className="
   w-full h-full
   sm:w-[calc(100%-2rem)] sm:max-w-3xl sm:h-[80vh]
   bg-gray-900/90 … 
   rounded-none sm:rounded-2xl
   overflow-hidden flex flex-col
-">
+"
+          >
             {/* ヘッダー + タブ */}
             <div className="bg-gray-800/80 px-6 py-4 flex flex-col">
               <div className="flex items-center justify-end mb-2">
@@ -1033,15 +1066,13 @@ useEffect(() => {
                   <button
                     key={type}
                     onClick={() => setHistoryType(type as "PON" | "SATO")}
-                    className={`
-                                                             relative pb-2 text-sm font-medium transition
-                                                             ${
-                                                               historyType ===
-                                                               type
-                                                                 ? "text-white"
-                                                                 : "text-gray-400 hover:text-gray-200"
-                                                             }
-                                                             `}
+                    className={`relative pb-2 text-sm font-medium transition
+                                                            ${
+                                                              historyType ===
+                                                              type
+                                                                ? "text-white"
+                                                                : "text-gray-400 hover:text-gray-200"
+                                                            } `}
                   >
                     {type}
                     {historyType === type && (
@@ -1063,116 +1094,125 @@ useEffect(() => {
                   </p>
                 </div>
               ) : (
-[...filteredHistory]
-  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  .map((rec) => {
-    const sender = rec.points.find((p) => p.value > 0)!;
-    const receiver = rec.points.find((p) => p.value < 0)!;
-    const amount = Math.abs(sender.value);
+                [...filteredHistory]
+                  .sort(
+                    (a, b) =>
+                      new Date(b.created_at).getTime() -
+                      new Date(a.created_at).getTime()
+                  )
+                  .map((rec) => {
+                    const sender = rec.points.find((p) => p.value > 0)!;
+                    const receiver = rec.points.find((p) => p.value < 0)!;
+                    const amount = Math.abs(sender.value);
 
-    if (historyType === "SATO") {
-      return (
-        <div
-          key={rec.round_id}
-          className="mx-auto max-w-2xl bg-gray-900/80 border border-gray-700 rounded-2xl p-6 flex flex-col items-center space-y-4"
-        >
-          <div className="w-full flex justify-between items-center mb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <span className="material-symbols-outlined text-white text-sm">
-                  swap_horiz
-                </span>
-              </div>
-              <span className="text-sm font-mono text-blue-300 font-semibold">
-                {rec.round_id}
-              </span>
-            </div>
-            <span className="text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-lg">
-              {new Date(rec.created_at).toLocaleString("ja-JP", {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          </div>
+                    if (historyType === "SATO") {
+                      return (
+                        <div
+                          key={rec.round_id}
+                          className="mx-auto max-w-2xl bg-gray-900/80 border border-gray-700 rounded-2xl p-6 flex flex-col items-center space-y-4"
+                        >
+                          <div className="w-full flex justify-between items-center mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                                <span className="material-symbols-outlined text-white text-sm">
+                                payments
+                                </span>
+                              </div>
+                              <span className="text-sm font-mono text-blue-300 font-semibold">
+                                {rec.round_id}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-lg">
+                              {new Date(rec.created_at).toLocaleString(
+                                "ja-JP",
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                }
+                              )}
+                            </span>
+                          </div>
 
-{/* 送金フロー */}
-<div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700 w-full">
-  <div className="flex">
-    {/* From */}
-    <div className="flex-1 flex flex-col items-center">
-      {userMap[sender.uid]?.icon_url ? (
-        <img
-          src={userMap[sender.uid].icon_url}
-          alt={userMap[sender.uid].display_name}
-          className="w-10 h-10 rounded-full object-cover mb-2"
-        />
-      ) : (
-        <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center mb-2 text-white">
-          {userMap[sender.uid]?.display_name.charAt(0)}
-        </div>
-      )}
-      <span
-        className="
+                          {/* 送金フロー */}
+                          <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700 w-full">
+                            <div className="flex">
+                              {/* From */}
+                              <div className="flex-1 flex flex-col items-center">
+                                {userMap[sender.uid]?.icon_url ? (
+                                  <img
+                                    src={userMap[sender.uid].icon_url}
+                                    alt={userMap[sender.uid].display_name}
+                                    className="w-10 h-10 rounded-full object-cover mb-2"
+                                  />
+                                ) : (
+                                  <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center mb-2 text-white">
+                                    {userMap[sender.uid]?.display_name.charAt(
+                                      0
+                                    )}
+                                  </div>
+                                )}
+                                <span
+                                  className="
           text-sm md:text-base font-medium text-green-300 
           truncate whitespace-nowrap 
           max-w-[5rem] sm:max-w-[6rem] lg:max-w-[8rem] 
           text-center
         "
-        title={userMap[sender.uid]?.display_name}
-      >
-        {userMap[sender.uid]?.display_name || sender.uid}
-      </span>
-    </div>
+                                  title={userMap[sender.uid]?.display_name}
+                                >
+                                  {userMap[sender.uid]?.display_name ||
+                                    sender.uid}
+                                </span>
+                              </div>
 
+                              {/* → & Amount */}
+                              <div className="flex-1 flex flex-col items-center justify-center space-y-1">
+                                {/* 大きめの矢印アイコン */}
+                                <span className="material-symbols-outlined text-blue-300 text-2xl md:text-3xl">
+                                  arrow_forward
+                                </span>
 
-{/* → & Amount */}
-<div className="flex-1 flex flex-col items-center justify-center space-y-1">
-  {/* 大きめの矢印アイコン */}
-  <span className="material-symbols-outlined text-blue-300 text-2xl md:text-3xl">
-    arrow_forward
-  </span>
+                                {/* 金額バッジ */}
+                                <div className="inline-flex items-center justify-center bg-yellow-600/20 border border-yellow-500 rounded-full px-4 py-2 min-w-[4rem] md:min-w-[5rem]">
+                                  <span className="text-yellow-300 font-extrabold text-base md:text-lg leading-none truncate">
+                                    {amount}
+                                    <span className="text-xs md:text-sm opacity-80 ml-1">
+                                      sato
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
 
-  {/* 金額バッジ */}
-  <div className="inline-flex items-center justify-center bg-yellow-600/20 border border-yellow-500 rounded-full px-4 py-2 min-w-[4rem] md:min-w-[5rem]">
-    <span className="text-yellow-300 font-extrabold text-base md:text-lg leading-none truncate">
-      {amount}
-      <span className="text-xs md:text-sm opacity-80 ml-1">sato</span>
-    </span>
-  </div>
-</div>
-
-    {/* To */}
-    <div className="flex-1 flex flex-col items-center">
-      {userMap[receiver.uid]?.icon_url ? (
-        <img
-          src={userMap[receiver.uid].icon_url}
-          alt={userMap[receiver.uid].display_name}
-          className="w-10 h-10 rounded-full object-cover mb-2"
-        />
-      ) : (
-        <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center mb-2 text-white">
-          {userMap[receiver.uid]?.display_name.charAt(0)}
-        </div>
-      )}
-      <span
-        className="
-          text-sm md:text-base font-medium text-blue-300 
-          truncate whitespace-nowrap 
-          max-w-[5rem] sm:max-w-[6rem] lg:max-w-[8rem] 
-          text-center
-        "
-        title={userMap[receiver.uid]?.display_name}
-      >
-        {userMap[receiver.uid]?.display_name || receiver.uid}
-      </span>
-    </div>
-  </div>
-</div>
-        </div>
-      );
-    }
+                              {/* To */}
+                              <div className="flex-1 flex flex-col items-center">
+                                {userMap[receiver.uid]?.icon_url ? (
+                                  <img
+                                    src={userMap[receiver.uid].icon_url}
+                                    alt={userMap[receiver.uid].display_name}
+                                    className="w-10 h-10 rounded-full object-cover mb-2"
+                                  />
+                                ) : (
+                                  <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center mb-2 text-white">
+                                    {userMap[receiver.uid]?.display_name.charAt(
+                                      0
+                                    )}
+                                  </div>
+                                )}
+                                <span
+                                  className=" text-sm md:text-base font-medium text-blue-300 truncate whitespace-nowrap max-w-[5rem] sm:max-w-[6rem] lg:max-w-[8rem] text-center"
+                                  title={userMap[receiver.uid]?.display_name}
+                                >
+                                  {userMap[receiver.uid]?.display_name ||
+                                    receiver.uid}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
                       <div
                         key={rec.round_id}
@@ -1183,7 +1223,7 @@ useEffect(() => {
                           <div className="flex items-center gap-2">
                             <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
                               <span className="material-symbols-outlined text-white text-sm">
-                              leaderboard
+                                leaderboard
                               </span>
                             </div>
                             <span className="text-sm font-mono text-sky-400 font-semibold">
@@ -1363,67 +1403,77 @@ useEffect(() => {
                   return myBalance < 0 && theirBal > 0;
                 }).length > 0 ? (
                   <div className="grid grid-cols-3 gap-3">
-{room.members
-  .filter((m: any) => {
-    if (m.uid === me.uid) return false;
-    const theirBal = balances[m.uid] || 0;
-    return myBalance < 0 && theirBal > 0;
-  })
-  .map((m: any) => {
-    // userMap から情報を取得
-    const user = userMap[m.uid] ?? { display_name: m.uid, icon_url: "" };
-    const maxPay = Math.min(-myBalance, balances[m.uid] || 0);
-    const isSel = settleInput.to_uid === m.uid;
+                    {room.members
+                      .filter((m: any) => {
+                        if (m.uid === me.uid) return false;
+                        const theirBal = balances[m.uid] || 0;
+                        return myBalance < 0 && theirBal > 0;
+                      })
+                      .map((m: any) => {
+                        // userMap から情報を取得
+                        const user = userMap[m.uid] ?? {
+                          display_name: m.uid,
+                          icon_url: "",
+                        };
+                        const maxPay = Math.min(
+                          -myBalance,
+                          balances[m.uid] || 0
+                        );
+                        const isSel = settleInput.to_uid === m.uid;
 
-    return (
-      <button
-        key={m.uid}
-        onClick={() => setSettleInput({ to_uid: m.uid, amount: 0 })}
-        className={`relative flex flex-col items-center p-4 rounded-2xl border-2 transition-all duration-300 transform hover:scale-105 group ${
-          isSel
-            ? "border-purple-400/60 bg-gradient-to-br from-purple-600/20 to-indigo-600/20 shadow-lg shadow-purple-500/20"
-            : "border-gray-600/40 bg-gradient-to-br from-gray-700/40 to-gray-800/40 hover:border-purple-400/40"
-        }`}
-      >
-        {isSel && (
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-2xl animate-pulse" />
-        )}
+                        return (
+                          <button
+                            key={m.uid}
+                            onClick={() =>
+                              setSettleInput({ to_uid: m.uid, amount: 0 })
+                            }
+                            className={`relative flex flex-col items-center p-4 rounded-2xl border-2 transition-all duration-300 transform hover:scale-105 group ${
+                              isSel
+                                ? "border-purple-400/60 bg-gradient-to-br from-purple-600/20 to-indigo-600/20 shadow-lg shadow-purple-500/20"
+                                : "border-gray-600/40 bg-gradient-to-br from-gray-700/40 to-gray-800/40 hover:border-purple-400/40"
+                            }`}
+                          >
+                            {isSel && (
+                              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-2xl animate-pulse" />
+                            )}
 
-        {/* アイコン or イニシャル */}
-        <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
-          {user.icon_url ? (
-            <img
-              src={user.icon_url}
-              alt={user.display_name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gray-600 text-white font-bold text-lg">
-              {user.display_name.charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
+                            {/* アイコン or イニシャル */}
+                            <div className="w-12 h-12 rounded-full overflow-hidden mb-2">
+                              {user.icon_url ? (
+                                <img
+                                  src={user.icon_url}
+                                  alt={user.display_name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gray-600 text-white font-bold text-lg">
+                                  {user.display_name.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                            </div>
 
-        {/* 表示名 */}
-        <span
-          className={`text-sm font-medium truncate w-full text-center ${
-            isSel ? "text-purple-300" : "text-gray-300"
-          }`}
-        >
-          {user.display_name}
-        </span>
+                            {/* 表示名 */}
+                            <span
+                              className={`text-sm font-medium truncate w-full text-center ${
+                                isSel ? "text-purple-300" : "text-gray-300"
+                              }`}
+                            >
+                              {user.display_name}
+                            </span>
 
-        {/* Max */}
-        <div
-          className={`text-xs mt-1 px-2 py-0.5 rounded-full ${
-            isSel ? "bg-purple-500/20 text-purple-300" : "bg-gray-600/40 text-gray-400"
-          }`}
-        >
-          Max: {maxPay.toLocaleString()}
-        </div>
-      </button>
-    );
-  })}
+                            {/* Max */}
+                            <div
+                              className={`text-xs mt-1 px-2 py-0.5 rounded-full ${
+                                isSel
+                                  ? "bg-purple-500/20 text-purple-300"
+                                  : "bg-gray-600/40 text-gray-400"
+                              }`}
+                            >
+                              Max: {maxPay.toLocaleString()}
+                            </div>
+                          </button>
+                        );
+                      })}
                   </div>
                 ) : (
                   <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-2xl p-4 flex items-center gap-3">
@@ -1442,7 +1492,6 @@ useEffect(() => {
               {/* 金額入力＆送信 */}
               {settleInput.to_uid && (
                 <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-5 border border-gray-600/30">
-
                   {(() => {
                     const maxPay = Math.min(
                       -myBalance,
@@ -1534,74 +1583,89 @@ useEffect(() => {
         </div>
       )}
 
-{showSettingsModal && (
-  <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
-    <div className="w-full h-full sm:w-full sm:max-w-lg sm:h-auto bg-gray-800/90 rounded-none sm:rounded-2xl shadow-2xl animate-scale-up overflow-hidden">
-      {/* Header */}
-      <div className="flex justify-between items-center bg-gray-900/80 px-6 py-4 border-b border-gray-700">
-        <h2 className="text-lg font-semibold text-white">Room Settings</h2>
-        <button
-          onClick={() => setShowSettingsModal(false)}
-          className="p-2 rounded hover:bg-gray-700/40"
-        >
-          <span className="material-symbols-outlined text-white">close</span>
-        </button>
-      </div>
-      {/* Body */}
-      <div className="px-6 py-5 space-y-5">
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Name</label>
-          {room.created_by === me.uid ? (
-            <input
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-              maxLength={20}
-              className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
-            />
-          ) : (
-            <p className="text-white">{room.name}</p>
-          )}
+      {showSettingsModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
+          <div className="w-full h-full sm:w-full sm:max-w-lg sm:h-auto bg-gray-800/90 rounded-none sm:rounded-2xl shadow-2xl animate-scale-up overflow-hidden">
+            {/* Header */}
+            <div className="flex justify-between items-center bg-gray-900/80 px-6 py-4 border-b border-gray-700">
+              <h2 className="text-lg font-semibold text-white">
+                Room Settings
+              </h2>
+              <button
+                onClick={() => setShowSettingsModal(false)}
+                className="p-2 rounded hover:bg-gray-700/40"
+              >
+                <span className="material-symbols-outlined text-white">
+                  close
+                </span>
+              </button>
+            </div>
+            {/* Body */}
+            <div className="px-6 py-5 space-y-5">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Name</label>
+                {room.created_by === me.uid ? (
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    maxLength={20}
+                    className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
+                  />
+                ) : (
+                  <p className="text-white">{room.name}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Description
+                </label>
+                {room.created_by === me.uid ? (
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    maxLength={100}
+                    rows={3}
+                    className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
+                  />
+                ) : (
+                  <p className="text-gray-200">{room.description || "None"}</p>
+                )}
+              </div>
+              {/* Controls */}
+              <div className="flex flex-col space-y-3">
+                {room.created_by === me.uid && (
+                  <button
+                    onClick={handleUpdateRoom}
+                    disabled={updating}
+                    className={`w-full py-2 rounded-full text-white font-medium transition ${
+                      updating
+                        ? "bg-indigo-600/50 cursor-not-allowed"
+                        : "bg-indigo-500 hover:bg-indigo-600"
+                    }`}
+                  >
+                    {updating ? "Updating..." : "Update"}
+                  </button>
+                )}
+                <button
+                  onClick={
+                    room.created_by === me.uid
+                      ? handleDeleteRoom
+                      : handleLeaveRoom
+                  }
+                  className="w-full py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition"
+                >
+                  {room.created_by === me.uid ? "Delete Room" : "Leave Room"}
+                </button>
+              </div>
+              {errorMessage && (
+                <p className="text-red-400 text-sm text-center">
+                  {errorMessage}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Description</label>
-          {room.created_by === me.uid ? (
-            <textarea
-              value={editDesc}
-              onChange={e => setEditDesc(e.target.value)}
-              maxLength={100}
-              rows={3}
-              className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
-            />
-          ) : (
-            <p className="text-gray-200">{room.description || "None"}</p>
-          )}
-        </div>
-        {/* Controls */}
-        <div className="flex flex-col space-y-3">
-          {room.created_by === me.uid && (
-            <button
-              onClick={handleUpdateRoom}
-              disabled={updating}
-              className={`w-full py-2 rounded-full text-white font-medium transition ${
-                updating ? "bg-indigo-600/50 cursor-not-allowed" : "bg-indigo-500 hover:bg-indigo-600"
-              }`}
-            >
-              {updating ? "Updating..." : "Update"}
-            </button>
-          )}
-          <button
-            onClick={room.created_by === me.uid ? handleDeleteRoom : handleLeaveRoom}
-            className="w-full py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition"
-          >
-            {room.created_by === me.uid ? "Delete Room" : "Leave Room"}
-          </button>
-        </div>
-        {errorMessage && <p className="text-red-400 text-sm text-center">{errorMessage}</p>}
-      </div>
-    </div>
-  </div>
-)}
-
+      )}
 
       {/* 精算リクエスト承認モーダル */}
       {pendingReq && (
@@ -1624,47 +1688,47 @@ useEffect(() => {
                 </h2>
               </div>
 
-{/* リクエスト詳細 */}
-<div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30">
-  {(() => {
-    // ユーザー情報を取得
-    const user = userMap[pendingReq.from_uid] ?? {
-      display_name: pendingReq.from_uid,
-      icon_url: "",
-    };
-    return (
-      <div className="flex items-center gap-4 mb-4">
-        {/* アバター */}
-        <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
-          {user.icon_url ? (
-            <img
-              src={user.icon_url}
-              alt={user.display_name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
-              {user.display_name.charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
-        {/* 表示名 */}
-        <div>
-          <p className="text-white font-semibold">
-            {user.display_name}
-          </p>
-        </div>
-      </div>
-    );
-  })()}
+              {/* リクエスト詳細 */}
+              <div className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 rounded-2xl p-6 mb-6 border border-gray-600/30">
+                {(() => {
+                  // ユーザー情報を取得
+                  const user = userMap[pendingReq.from_uid] ?? {
+                    display_name: pendingReq.from_uid,
+                    icon_url: "",
+                  };
+                  return (
+                    <div className="flex items-center gap-4 mb-4">
+                      {/* アバター */}
+                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
+                        {user.icon_url ? (
+                          <img
+                            src={user.icon_url}
+                            alt={user.display_name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
+                            {user.display_name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      {/* 表示名 */}
+                      <div>
+                        <p className="text-white font-semibold">
+                          {user.display_name}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
 
-  <div className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-400/30 rounded-xl p-4 text-center">
-    <p className="text-yellow-300 font-bold text-2xl">
-      {pendingReq.amount.toLocaleString()}
-      <span className="text-base opacity-80 ml-1">sato</span>
-    </p>
-  </div>
-</div>
+                <div className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-400/30 rounded-xl p-4 text-center">
+                  <p className="text-yellow-300 font-bold text-2xl">
+                    {pendingReq.amount.toLocaleString()}
+                    <span className="text-base opacity-80 ml-1">sato</span>
+                  </p>
+                </div>
+              </div>
               {/* アクションボタン */}
               <div className="flex gap-3">
                 <button

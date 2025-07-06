@@ -35,7 +35,9 @@ export const PresenceProvider = ({ children }: PropsWithChildren) => {
   const wsRef = useRef<WebSocket | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [wsReady, setWsReady] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState<Record<string, Set<string>>>({});
+  const [onlineUsers, setOnlineUsers] = useState<Record<string, Set<string>>>(
+    {}
+  );
   const subscribedRooms = useRef<Set<string>>(new Set());
   const enteredRooms = useRef<Set<string>>(new Set());
   const listeners = useRef<Set<(ev: Event) => void>>(new Set());
@@ -189,4 +191,3 @@ export const usePresence = (): PresenceContextValue => {
   if (!ctx) throw new Error("usePresence must be used within PresenceProvider");
   return ctx;
 };
-

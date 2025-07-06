@@ -2,7 +2,7 @@
 
 .fadeOutShrink {
   animation: shrinkFadeOut 0.8s forwards;
-  animation-delay: 0s; /* 遅延は不要なので0sに設定 */
+  animation-delay: 0s;
 }
 
 @keyframes shrinkFadeOut {
@@ -20,13 +20,12 @@
   display: inline-block;
   opacity: 0;
   transform: rotateY(180deg) scale(0.5);
-  animation-fill-mode: backwards;
+  animation-fill-mode: backwards; /* これは維持 */
 }
 
 /* Character appearance animation */
 .charAppear {
   animation: charEnter 0.7s cubic-bezier(0.68, -0.55, 0.27, 1.55) forwards;
-  /* animation-delay はJS側で設定するので、ここでは不要 */
 }
 
 @keyframes charEnter {
@@ -39,22 +38,3 @@
     transform: rotateY(0deg) translateY(0) scale(1);
   }
 }
-
-/* Media Queries for smaller screens */
-/* 現在のコンポーネントでは使用されていないため、必要であれば適用してください */
-/*
-@media (max-width: 768px) {
-  .satoContainer {
-    font-size: 5em;
-  }
-}
-
-@media (max-width: 480px) {
-  .satoContainer {
-    font-size: 3em;
-    gap: 0.05em;
-  }
-}
-*/
-
-
