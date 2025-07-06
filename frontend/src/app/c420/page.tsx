@@ -45,7 +45,7 @@ export default function DashboardPage() {
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
+  const [searchQuery, setSearchQuery] = useState("");
   const [userList, setUserList] = useState<any[]>([]);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [userPointHistory, setUserPointHistory] = useState<any[]>([]);
@@ -354,11 +354,27 @@ export default function DashboardPage() {
     setMsg("new-room");
   };
 
-  const myRooms = rooms.filter((r) => r.created_by === me?.uid);
   const joinedRooms = rooms;
   const availableRooms = allRooms.filter(
     (r) => !rooms.some((x) => x.room_id === r.room_id)
   );
+  const q = searchQuery.trim().toLowerCase();
+
+  const filteredJoined = joinedRooms.filter((r) => {
+    if (!q) return true;
+    return (
+      r.name.toLowerCase().includes(q) || r.room_id.toLowerCase().includes(q)
+    );
+  });
+
+  const filteredAll = availableRooms.filter((r) => {
+    if (!q) return true;
+    return (
+      r.name.toLowerCase().includes(q) || r.room_id.toLowerCase().includes(q)
+    );
+  });
+
+  const myRooms = rooms.filter((r) => r.created_by === me?.uid);
   const StatItem = ({
     icon,
     label,
@@ -515,9 +531,14 @@ export default function DashboardPage() {
       {showRoomModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
           <div
-            className="w-full h-full max-w-full rounded-none overflow-hidden bg-gray-900/95 border border-gray-700/50 shadow-2xl
-
-                  sm:rounded-2xl sm:max-w-[95%] sm:h-[95vh] lg:max-w-4xl lg:h-[90vh]"
+            className={`
+             w-full h-full max-w-full
+              overflow-hidden bg-gray-900/95 border border-gray-700/50 shadow-2xl
+              rounded-2xl
+              sm:max-w-[95%] lg:max-w-4xl
+              sm:h-full lg:h-full
+              ${styles.modalSlideUp}
+           `}
           >
             <div className="max-w-4xl w-full h-full flex flex-col">
               {/* Header */}
@@ -585,93 +606,99 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
+{/* ─── 検索バー ─── */}
+<div className="w-full pb-0">
+  {/* 入力欄をカード風に囲む */}
+  <div className="bg-gray-800/40 p-2 flex items-center">
+    <span className="material-symbols-outlined text-gray-400 mr-2">
+      search
+    </span>
+    <input
+      type="text"
+      value={searchQuery}
+      onChange={(e) => setSearchQuery(e.target.value)}
+      placeholder="Search by name or ID"
+      className="flex-1 bg-transparent text-gray-100 placeholder-gray-500 focus:outline-none"
+    />
+  </div>
+</div>
 
               {/* content */}
               <div className="p-6 overflow-y-auto h-full flex-1 scrollbar-hide">
                 {roomModalTab === "joined" && (
                   <div className="space-y-4 max-w-3xl mx-auto">
-                    {joinedRooms.map((r) => {
-                      const count = onlineUsers[r.room_id]?.size ?? 0;
-                      const hasPending = r.pending_members?.length > 0;
-                      const isOwner = r.created_by === me.uid;
-
-                      return (
-                        <Link
-                          key={r.room_id}
-                          href={`/rooms/${r.room_id}`}
-                          className={`
-              group block p-5 rounded-xl transition-all duration-300 border
-              hover:scale-[1.02] hover:shadow-lg
-              ${
-                isOwner
-                  ? "border-blue-400/40 bg-gradient-to-r from-blue-500/10 to-blue-600/5 hover:from-blue-500/15 hover:to-blue-600/10"
-                  : "border-gray-600/40 bg-gray-800/30 hover:bg-gray-700/40"
-              }
-            `}
-                        >
-                          <div className="flex justify-between items-start">
-                            {/* 左側：アイコン＋名前 */}
-                            <div className="flex items-center space-x-4">
-                              <div
-                                className={`
-                  w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg
-                  ${
-                    isOwner
-                      ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg"
-                      : "bg-gradient-to-br from-gray-600 to-gray-700"
-                  }
-                `}
-                              >
-                                {r.name.charAt(0)}
-                              </div>
-                              <div>
-                                <h3 className="font-semibold text-white text-lg sm:text-base">
-                                  {r.name}
-                                </h3>
-                                <div className="flex items-center space-x-2 text-gray-400 text-sm sm:text-xs">
-                                  <span>ID: {r.room_id}</span>
-                                  {isOwner && (
-                                    <span
-                                      className="material-symbols-outlined text-blue-300 text-[18px] opacity-80 group-hover:opacity-100 transition-opacity"
-                                      title="Owner"
-                                    >
-                                      shield_person
-                                    </span>
-                                  )}
-                                  {hasPending && (
-                                    <span className="px-2 py-0.5 rounded-full bg-yellow-400/20 border border-yellow-400/30 text-yellow-300">
-                                      Request
-                                    </span>
-                                  )}
-                                  {count > 0 ? (
-                                    <span className="px-2 py-0.5 rounded-full bg-green-400/20 border border-green-400/30 text-green-300">
-                                      {count} Online
-                                    </span>
-                                  ) : (
-                                    <span className="px-2 py-0.5 rounded-full bg-gray-600/20 border border-gray-600/30 text-gray-400">
-                                      Offline
-                                    </span>
-                                  )}
+                    {filteredJoined.length > 0 ? (
+                      filteredJoined.map((r) => {
+                        const count = onlineUsers[r.room_id]?.size ?? 0;
+                        const hasPending = r.pending_members?.length > 0;
+                        const isOwner = r.created_by === me.uid;
+                        return (
+                          <Link
+                            key={r.room_id}
+                            href={`/rooms/${r.room_id}`}
+                            className={`
+                group block p-5 rounded-xl transition-all duration-300 border
+                hover:scale-[1.02] hover:shadow-lg
+                ${
+                  isOwner
+                    ? "border-blue-400/40 bg-gradient-to-r from-blue-500/10 to-blue-600/5 hover:from-blue-500/15 hover:to-blue-600/10"
+                    : "border-gray-600/40 bg-gray-800/30 hover:bg-gray-700/40"
+                }
+              `}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center space-x-4">
+                                <div
+                                  className={`
+                      w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg
+                      ${
+                        isOwner
+                          ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg"
+                          : "bg-gradient-to-br from-gray-600 to-gray-700"
+                      }
+                    `}
+                                >
+                                  {r.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <h3 className="font-semibold text-white text-lg sm:text-base">
+                                    {r.name}
+                                  </h3>
+                                  <div className="flex items-center space-x-2 text-gray-400 text-sm sm:text-xs">
+                                    <span>ID: {r.room_id}</span>
+                                    {isOwner && (
+                                      <span
+                                        className="material-symbols-outlined text-blue-300 text-[18px] opacity-80 group-hover:opacity-100 transition-opacity"
+                                        title="Owner"
+                                      >
+                                        shield_person
+                                      </span>
+                                    )}
+                                    {hasPending && (
+                                      <span className="px-2 py-0.5 rounded-full bg-yellow-400/20 border border-yellow-400/30 text-yellow-300">
+                                        Request
+                                      </span>
+                                    )}
+                                    {count > 0 ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-green-400/20 border border-green-400/30 text-green-300">
+                                        {count} Online
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full bg-gray-600/20 border border-gray-600/30 text-gray-400">
+                                        Offline
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                            {/* 右側に何か他要素があればここに */}
-                          </div>
-                        </Link>
-                      );
-                    })}
-                    {joinedRooms.length === 0 && (
+                          </Link>
+                        );
+                      })
+                    ) : (
                       <div className="text-center py-16">
-                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
-                          <span className="material-symbols-outlined text-gray-400 text-[24px]">
-                            door_open
-                          </span>
-                        </div>
-                        <p className="text-gray-400 text-lg">
-                          No joined rooms yet
-                        </p>
-                        <p className="text-gray-500 text-sm mt-1">
-                          Browse available rooms to get started
+                        <p className="text-gray-400">
+                          No rooms match “{searchQuery}”.
                         </p>
                       </div>
                     )}
@@ -680,86 +707,77 @@ export default function DashboardPage() {
 
                 {roomModalTab === "all" && (
                   <div className="space-y-4 max-w-3xl mx-auto">
-                    {availableRooms.map((r) => {
-                      const pending = r.pending_members?.some(
-                        (m: any) => m.uid === me.uid
-                      );
-
-                      return (
-                        <div
-                          key={r.room_id}
-                          className="p-5 bg-gray-800/40 rounded-xl border border-gray-600/40 hover:bg-gray-700/50 transition-all duration-300"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-br from-gray-600 to-gray-700 text-white text-lg font-bold shadow-lg">
-                                {r.name.charAt(0)}
+                    {filteredAll.length > 0 ? (
+                      filteredAll.map((r) => {
+                        const pending = r.pending_members?.some(
+                          (m: any) => m.uid === me.uid
+                        );
+                        return (
+                          <div
+                            key={r.room_id}
+                            className="p-5 bg-gray-800/40 rounded-xl border border-gray-600/40 hover:bg-gray-700/50 transition-all duration-300"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-br from-gray-600 to-gray-700 text-white text-lg font-bold shadow-lg">
+                                  {r.name.charAt(0)}
+                                </div>
+                                <div className="space-y-1">
+                                  <h3 className="text-white font-semibold text-lg">
+                                    {r.name}
+                                  </h3>
+                                  <p className="text-gray-400 text-sm font-mono">
+                                    ID: {r.room_id}
+                                  </p>
+                                </div>
                               </div>
-                              <div className="space-y-1">
-                                <h3 className="text-white font-semibold text-lg">
-                                  {r.name}
-                                </h3>
-                                <p className="text-gray-400 text-sm font-mono">
-                                  ID: {r.room_id}
-                                </p>
-                              </div>
-                            </div>
 
-                            {/* Action Button */}
-                            <div className="flex items-center space-x-3">
-                              {pending ? (
-                                <button
-                                  onClick={async () => {
-                                    await api.cancelJoinRequest(
-                                      token,
-                                      r.room_id
-                                    );
-                                    setMsg("cancel-req");
-                                  }}
-                                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 hover:bg-yellow-500/30 transition-all duration-200 hover:scale-105"
-                                  title="Cancel Request"
-                                >
-                                  <span className="material-symbols-outlined text-yellow-400 text-[20px] animate-pulse">
-                                    pending
-                                  </span>
-                                  <span className="text-yellow-300 text-sm font-medium">
-                                    Pending
-                                  </span>
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={async () => {
-                                    await api.joinRoom(token, r.room_id);
-                                    setMsg("join-req");
-                                  }}
-                                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all duration-200 hover:scale-105"
-                                  title="Request to Join"
-                                >
-                                  <span className="material-symbols-outlined text-emerald-400 text-[20px]">
-                                    add_circle
-                                  </span>
-                                  <span className="text-emerald-300 text-sm font-medium">
-                                    Join
-                                  </span>
-                                </button>
-                              )}
+                              <div className="flex items-center space-x-3">
+                                {pending ? (
+                                  <button
+                                    onClick={async () => {
+                                      await api.cancelJoinRequest(
+                                        token,
+                                        r.room_id
+                                      );
+                                      setMsg("cancel-req");
+                                    }}
+                                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 hover:bg-yellow-500/30 transition-all duration-200 hover:scale-105"
+                                    title="Cancel Request"
+                                  >
+                                    <span className="material-symbols-outlined text-yellow-400 text-[20px] animate-pulse">
+                                      pending
+                                    </span>
+                                    <span className="text-yellow-300 text-sm font-medium">
+                                      Pending
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={async () => {
+                                      await api.joinRoom(token, r.room_id);
+                                      setMsg("join-req");
+                                    }}
+                                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all duration-200 hover:scale-105"
+                                    title="Request to Join"
+                                  >
+                                    <span className="material-symbols-outlined text-emerald-400 text-[20px]">
+                                      add_circle
+                                    </span>
+                                    <span className="text-emerald-300 text-sm font-medium">
+                                      Join
+                                    </span>
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                    {availableRooms.length === 0 && (
+                        );
+                      })
+                    ) : (
                       <div className="text-center py-16">
-                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
-                          <span className="material-symbols-outlined text-gray-400 text-[24px]">
-                            search_off
-                          </span>
-                        </div>
-                        <p className="text-gray-400 text-lg">
-                          No rooms available
-                        </p>
-                        <p className="text-gray-500 text-sm mt-1">
-                          Check back later for new rooms
+                        <p className="text-gray-400">
+                          No rooms match “{searchQuery}”.
                         </p>
                       </div>
                     )}
@@ -775,9 +793,19 @@ export default function DashboardPage() {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4 md:p-6 lg:p-8"
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4"
         >
-          <div className="relative w-full h-full sm:w-auto sm:h-auto sm:max-w-md md:max-w-lg lg:max-w-xl bg-gray-800/80 border border-gray-600 rounded-none sm:rounded-2xl shadow-2xl backdrop-blur-xl p-6 sm:p-8 lg:p-10 flex flex-col max-h-screen overflow-y-auto">
+          <div
+            className={`
+              w-full h-full max-w-full rounded-none overflow-hidden
+              bg-gray-800/80 border border-gray-600 sm:rounded-2xl shadow-2xl backdrop-blur-xl
+              sm:max-w-[95%] sm:h-[95vh]
+              lg:max-w-4xl lg:h-[90vh]
+              ${styles.modalSlideUp}
+              p-6 sm:p-8 lg:p-10 flex flex-col overflow-y-auto
+            `}
+          >
+            {/* Close ボタン */}
             <button
               onClick={() => {
                 setShowCreateModal(false);
@@ -788,7 +816,9 @@ export default function DashboardPage() {
             >
               <span className="material-symbols-outlined text-xl">close</span>
             </button>
-            <header className="flex items-center mb-6 sm:mb-8">
+
+            {/* ヘッダー */}
+            <header className="flex items-center mb-6">
               <span className="material-symbols-outlined text-blue-400 text-3xl mr-3">
                 add_circle
               </span>
@@ -797,6 +827,7 @@ export default function DashboardPage() {
               </h2>
             </header>
 
+            {/* 入力フォーム */}
             <form className="flex-1 space-y-6">
               <div>
                 <label
@@ -845,6 +876,7 @@ export default function DashboardPage() {
                   {newRoom.description.length} / 100
                 </p>
               </div>
+
               {formError && (
                 <p className="text-red-400 text-sm mt-2 text-center">
                   {formError}
@@ -852,6 +884,7 @@ export default function DashboardPage() {
               )}
             </form>
 
+            {/* アクションボタン */}
             <div className="flex space-x-4 mt-6">
               <button
                 onClick={() => {

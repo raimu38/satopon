@@ -20,6 +20,21 @@
   }
 }
 
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0.5;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modalSlideUp {
+  animation: slideUp 0.3s ease-out forwards;
+}
+
 .createButtonBackground {
   background: linear-gradient(
     135deg,
