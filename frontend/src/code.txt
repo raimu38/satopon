@@ -5,14 +5,25 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { auth } from "@/lib/firebaseClient";
 import { signOut } from "firebase/auth";
 import { onAuthStateChanged } from "firebase/auth";
 import * as api from "@/lib/api";
 import { usePresence } from "@/context/PresenceContext";
 import styles from "./Header.module.css";
-
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Line,
+  Tooltip,
+} from "recharts";
 export default function DashboardPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -27,13 +38,18 @@ export default function DashboardPage() {
   });
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState("");
+  // タブ切り替え用のステートを定義
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "recent_battles" | "sato_transactions"
+  >("overview");
+
   // Modal states
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
+  const [searchQuery, setSearchQuery] = useState("");
+  const [userList, setUserList] = useState<any[]>([]);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showPointHistoryModal, setShowPointHistoryModal] = useState(false);
   const [userPointHistory, setUserPointHistory] = useState<any[]>([]);
   const [roomModalTab, setRoomModalTab] = useState<
     "joined" | "created" | "all"
@@ -47,6 +63,192 @@ export default function DashboardPage() {
     onEvent,
   } = usePresence();
 
+  useEffect(() => {
+    if (!token) return;
+    api
+      .getUserPointHistory(token)
+      .then((history) => {
+        setUserPointHistory(history);
+      })
+      .catch((error) => {
+        console.error("Failed to fetch user point history:", error);
+      });
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    api
+      .getListUsers(token)
+      .then((users) => {
+        setUserList(users);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch user list:", err);
+      });
+  }, [token]);
+
+  const performanceData = useMemo(() => {
+    if (!me) return [];
+
+    const ponRoundsHistory = userPointHistory
+      .filter((r) => r.round_id.startsWith("PON") && r.created_at) // created_at が存在するPONラウンドのみ
+      .sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      ); // 古い順にソート
+
+    let runningWins = 0;
+    return ponRoundsHistory.map((round, index) => {
+      const myValue = round.points.find((p) => p.uid === me.uid)?.value || 0;
+      if (myValue > 0) runningWins++;
+      return {
+        round: index + 1, // 各ラウンドに時系列順のインデックスを割り当て
+        score: myValue, // そのラウンドのユーザーのスコア
+        winRate: Math.round((runningWins / (index + 1)) * 100), // 累積勝率
+      };
+    });
+  }, [userPointHistory, me]); // userPointHistoryとmeが変更されたときに再計算
+  const stats = useMemo(() => {
+    // ログインユーザー情報または履歴データがなければ、すべて0を返す
+    if (!me || userPointHistory.length === 0) {
+      return {
+        // PONゲームのカウント
+        ponRounds: 0,
+        wins: 0,
+        totalPonPts: 0,
+        winRate: 0,
+        avgPonPts: 0,
+
+        // 最大・最小・連勝記録
+        maxPon: 0,
+        minPon: 0,
+        bestStreak: 0,
+
+        // SATO取引の合計
+        satoIn: 0,
+        satoOut: 0,
+        satoNet: 0,
+        avgSato: 0,
+        maxSato: 0,
+
+        // 新規：対戦相手をグループ化したデータ
+        groupedOpponents: [],
+      };
+    }
+
+    // ヘルパー関数: このユーザーのポイント値を取得 (見つからなければ0)
+    const myValue = (rec: any) => {
+      const p = rec.points.find((p: any) => p.uid === me.uid);
+      return p ? p.value : 0;
+    };
+
+    // --- PONの統計情報 ---
+    const pon = userPointHistory.filter((r) => r.round_id.startsWith("PON"));
+    const sato = userPointHistory.filter((r) => r.round_id.startsWith("SATO"));
+
+    const ponRounds = pon.length; // PONラウンド数
+    const valuesPon = pon.map(myValue); // このユーザーのPONポイント値の配列
+    const wins = valuesPon.filter((v) => v > 0).length; // プラス得点のラウンド数
+    const totalPonPts = valuesPon.reduce((sum, v) => sum + v, 0); // 純PONポイント
+    const winRate = ponRounds
+      ? Math.round((wins / ponRounds) * 100) // 勝率を整数パーセントで
+      : 0;
+    const avgPonPts = ponRounds
+      ? Math.round(totalPonPts / ponRounds) // PONラウンドあたりの平均ポイント
+      : 0;
+    const maxPon = ponRounds
+      ? Math.max(...valuesPon) // 最高の単一ラウンドPONポイント
+      : 0;
+    const minPon = ponRounds
+      ? Math.min(...valuesPon) // 最悪の単一ラウンドPONポイント
+      : 0;
+
+    // 最長連勝記録の計算
+    let bestStreak = 0;
+    let cur = 0;
+    valuesPon.forEach((v) => {
+      if (v > 0) {
+        cur += 1;
+        bestStreak = Math.max(bestStreak, cur);
+      } else {
+        cur = 0;
+      }
+    });
+
+    // --- SATOの統計情報 ---
+    const valuesSato = sato.map(myValue); // このユーザーのSATOポイント値の配列
+    const satoIn = valuesSato
+      .filter((v) => v > 0) // 入金のみ
+      .reduce((sum, v) => sum + v, 0); // 受取額の合計
+    const satoOut = valuesSato
+      .filter((v) => v < 0) // 出金のみ
+      .reduce((sum, v) => sum + Math.abs(v), 0); // 支払額の合計
+    const satoNet = satoIn - satoOut; // 純残高
+    const avgSato = sato.length
+      ? Math.round(satoNet / sato.length) // SATOラウンドあたりの平均
+      : 0;
+    const maxSato = sato.length
+      ? Math.max(...valuesSato) // 最大の単一ラウンドSATO変動
+      : 0;
+
+    // --- 新規: 対戦相手をグループ化したデータ ---
+    const groupedOpponents: {
+      roundId: string;
+      roomId: string;
+      date: string;
+      participants: {
+        uid: string;
+        displayName: string;
+        iconUrl: string | null;
+        score: number;
+      }[];
+    }[] = pon
+      .map((round) => {
+        // `created_at` が存在すればそれを使用、なければ現在の時刻をフォールバックとして使用
+        const date = round.created_at
+          ? new Date(round.created_at).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            })
+          : "Unknown Date";
+        const participants = round.points.map((point: any) => {
+          const user = userList.find((u) => u.uid === point.uid);
+          return {
+            uid: point.uid,
+            displayName: user?.display_name || "Unknown User",
+            iconUrl: user?.icon_url || null,
+            score: point.value,
+          };
+        });
+        return {
+          roundId: round.round_id,
+          roomId: round.room_id,
+          date: date,
+          participants: participants,
+        };
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // 最新のものを上位にソート
+
+    // 計算されたすべてのメトリクスを一つのオブジェクトとして返す
+    return {
+      ponRounds,
+      wins,
+      totalPonPts,
+      winRate,
+      avgPonPts,
+      maxPon,
+      minPon,
+      bestStreak,
+      satoIn,
+      satoOut,
+      satoNet,
+      avgSato,
+      maxSato,
+      groupedOpponents, // 新しく追加した対戦相手データ
+    };
+  }, [userPointHistory, me, userList]); // userListも依存配列に含める
   useEffect(() => {
     if (token) {
       api
@@ -154,10 +356,45 @@ export default function DashboardPage() {
     setMsg("new-room");
   };
 
-  const myRooms = rooms.filter((r) => r.created_by === me?.uid);
   const joinedRooms = rooms;
   const availableRooms = allRooms.filter(
     (r) => !rooms.some((x) => x.room_id === r.room_id)
+  );
+  const q = searchQuery.trim().toLowerCase();
+
+  const filteredJoined = joinedRooms.filter((r) => {
+    if (!q) return true;
+    return (
+      r.name.toLowerCase().includes(q) || r.room_id.toLowerCase().includes(q)
+    );
+  });
+
+  const filteredAll = availableRooms.filter((r) => {
+    if (!q) return true;
+    return (
+      r.name.toLowerCase().includes(q) || r.room_id.toLowerCase().includes(q)
+    );
+  });
+
+  const myRooms = rooms.filter((r) => r.created_by === me?.uid);
+  const StatItem = ({
+    icon,
+    label,
+    value,
+    color,
+  }: {
+    icon: string;
+    label: string;
+    value: string | number;
+    color: string;
+  }) => (
+    <div className="flex flex-col items-center bg-gray-900/60 rounded-lg p-3 border border-gray-700/50 shadow-inner">
+      <span className={`material-symbols-outlined text-2xl ${color}`}>
+        {icon}
+      </span>
+      <span className="mt-1 text-lg font-semibold text-white">{value}</span>
+      <span className="text-xs text-gray-400">{label}</span>
+    </div>
   );
 
   if (initializing) {
@@ -296,9 +533,14 @@ export default function DashboardPage() {
       {showRoomModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
           <div
-            className="w-full h-full max-w-full rounded-none overflow-hidden bg-gray-900/95 border border-gray-700/50 shadow-2xl
-
-                  sm:rounded-2xl sm:max-w-[95%] sm:h-[95vh] lg:max-w-4xl lg:h-[90vh]"
+            className={`
+             w-full h-full max-w-full
+              overflow-hidden bg-gray-900/95 border border-gray-700/50 shadow-2xl
+              rounded-2xl
+              sm:max-w-[95%] lg:max-w-4xl
+              sm:h-full lg:h-full
+              ${styles.modalSlideUp}
+           `}
           >
             <div className="max-w-4xl w-full h-full flex flex-col">
               {/* Header */}
@@ -366,89 +608,99 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
+              {/* ─── 検索バー ─── */}
+              <div className="w-full pb-0">
+                {/* 入力欄をカード風に囲む */}
+                <div className="bg-gray-800/40 p-2 flex items-center">
+                  <span className="material-symbols-outlined text-gray-400 mr-2">
+                    search
+                  </span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by name or ID"
+                    className="flex-1 bg-transparent text-gray-100 placeholder-gray-500 focus:outline-none"
+                  />
+                </div>
+              </div>
 
               {/* content */}
               <div className="p-6 overflow-y-auto h-full flex-1 scrollbar-hide">
                 {roomModalTab === "joined" && (
                   <div className="space-y-4 max-w-3xl mx-auto">
-                    {joinedRooms.map((r) => {
-                      const count = onlineUsers[r.room_id]?.size ?? 0;
-                      const hasPending = r.pending_members?.length > 0;
-                      const isOwner = r.created_by === me.uid;
-
-                      return (
-                        <Link
-                          key={r.room_id}
-                          href={`/rooms/${r.room_id}`}
-                          className={`
-              group block p-5 rounded-xl transition-all duration-300 border
-              hover:scale-[1.02] hover:shadow-lg
-              ${
-                isOwner
-                  ? "border-blue-400/40 bg-gradient-to-r from-blue-500/10 to-blue-600/5 hover:from-blue-500/15 hover:to-blue-600/10"
-                  : "border-gray-600/40 bg-gray-800/30 hover:bg-gray-700/40"
-              }
-            `}
-                        >
-                          <div className="flex justify-between items-start">
-                            {/* 左側：アイコン＋名前 */}
-                            <div className="flex items-center space-x-4">
-                              <div
-                                className={`
-                  w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg
-                  ${
-                    isOwner
-                      ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg"
-                      : "bg-gradient-to-br from-gray-600 to-gray-700"
-                  }
-                `}
-                              >
-                                {r.name.charAt(0)}
-                              </div>
-                              <div>
-                                <h3 className="font-semibold text-white text-lg sm:text-base">
-                                  {r.name}
-                                </h3>
-                                <div className="flex items-center space-x-2 text-gray-400 text-sm sm:text-xs">
-                                  <span>ID: {r.room_id}</span>
-                                  {isOwner && (
-                                    <span
-                                      className="material-symbols-outlined text-blue-300 text-[18px] opacity-80 group-hover:opacity-100 transition-opacity"
-                                      title="Owner"
-                                    >
-                                      shield_person
-                                    </span>
-                                  )}
-                                  {hasPending && (
-                                    <span className="px-2 py-0.5 rounded-full bg-yellow-400/20 border border-yellow-400/30 text-yellow-300">
-                                      Request
-                                    </span>
-                                  )}
-                                  {count > 0 && (
-                                    <span className="px-2 py-0.5 rounded-full bg-green-400/20 border border-green-400/30 text-green-300">
-                                      {count} Online
-                                    </span>
-                                  )}
+                    {filteredJoined.length > 0 ? (
+                      filteredJoined.map((r) => {
+                        const count = onlineUsers[r.room_id]?.size ?? 0;
+                        const hasPending = r.pending_members?.length > 0;
+                        const isOwner = r.created_by === me.uid;
+                        return (
+                          <Link
+                            key={r.room_id}
+                            href={`/rooms/${r.room_id}`}
+                            className={`
+                group block p-5 rounded-xl transition-all duration-300 border
+                hover:scale-[1.02] hover:shadow-lg
+                ${
+                  isOwner
+                    ? "border-blue-400/40 bg-gradient-to-r from-blue-500/10 to-blue-600/5 hover:from-blue-500/15 hover:to-blue-600/10"
+                    : "border-gray-600/40 bg-gray-800/30 hover:bg-gray-700/40"
+                }
+              `}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center space-x-4">
+                                <div
+                                  className={`
+                      w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg
+                      ${
+                        isOwner
+                          ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg"
+                          : "bg-gradient-to-br from-gray-600 to-gray-700"
+                      }
+                    `}
+                                >
+                                  {r.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <h3 className="font-semibold text-white text-lg sm:text-base">
+                                    {r.name}
+                                  </h3>
+                                  <div className="flex items-center space-x-2 text-gray-400 text-sm sm:text-xs">
+                                    <span>ID: {r.room_id}</span>
+                                    {isOwner && (
+                                      <span
+                                        className="material-symbols-outlined text-blue-300 text-[18px] opacity-80 group-hover:opacity-100 transition-opacity"
+                                        title="Owner"
+                                      >
+                                        shield_person
+                                      </span>
+                                    )}
+                                    {hasPending && (
+                                      <span className="px-2 py-0.5 rounded-full bg-yellow-400/20 border border-yellow-400/30 text-yellow-300">
+                                        Request
+                                      </span>
+                                    )}
+                                    {count > 0 ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-green-400/20 border border-green-400/30 text-green-300">
+                                        {count} Online
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full bg-gray-600/20 border border-gray-600/30 text-gray-400">
+                                        Offline
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                            {/* 右側に何か他要素があればここに */}
-                          </div>
-                        </Link>
-                      );
-                    })}
-                    {joinedRooms.length === 0 && (
+                          </Link>
+                        );
+                      })
+                    ) : (
                       <div className="text-center py-16">
-                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
-                          <span className="material-symbols-outlined text-gray-400 text-[24px]">
-                            door_open
-                          </span>
-                        </div>
-                        <p className="text-gray-400 text-lg">
-                          No joined rooms yet
-                        </p>
-                        <p className="text-gray-500 text-sm mt-1">
-                          Browse available rooms to get started
+                        <p className="text-gray-400">
+                          No rooms match “{searchQuery}”.
                         </p>
                       </div>
                     )}
@@ -457,86 +709,77 @@ export default function DashboardPage() {
 
                 {roomModalTab === "all" && (
                   <div className="space-y-4 max-w-3xl mx-auto">
-                    {availableRooms.map((r) => {
-                      const pending = r.pending_members?.some(
-                        (m: any) => m.uid === me.uid
-                      );
-
-                      return (
-                        <div
-                          key={r.room_id}
-                          className="p-5 bg-gray-800/40 rounded-xl border border-gray-600/40 hover:bg-gray-700/50 transition-all duration-300"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-br from-gray-600 to-gray-700 text-white text-lg font-bold shadow-lg">
-                                {r.name.charAt(0)}
+                    {filteredAll.length > 0 ? (
+                      filteredAll.map((r) => {
+                        const pending = r.pending_members?.some(
+                          (m: any) => m.uid === me.uid
+                        );
+                        return (
+                          <div
+                            key={r.room_id}
+                            className="p-5 bg-gray-800/40 rounded-xl border border-gray-600/40 hover:bg-gray-700/50 transition-all duration-300"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-br from-gray-600 to-gray-700 text-white text-lg font-bold shadow-lg">
+                                  {r.name.charAt(0)}
+                                </div>
+                                <div className="space-y-1">
+                                  <h3 className="text-white font-semibold text-lg">
+                                    {r.name}
+                                  </h3>
+                                  <p className="text-gray-400 text-sm font-mono">
+                                    ID: {r.room_id}
+                                  </p>
+                                </div>
                               </div>
-                              <div className="space-y-1">
-                                <h3 className="text-white font-semibold text-lg">
-                                  {r.name}
-                                </h3>
-                                <p className="text-gray-400 text-sm font-mono">
-                                  ID: {r.room_id}
-                                </p>
-                              </div>
-                            </div>
 
-                            {/* Action Button */}
-                            <div className="flex items-center space-x-3">
-                              {pending ? (
-                                <button
-                                  onClick={async () => {
-                                    await api.cancelJoinRequest(
-                                      token,
-                                      r.room_id
-                                    );
-                                    setMsg("cancel-req");
-                                  }}
-                                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 hover:bg-yellow-500/30 transition-all duration-200 hover:scale-105"
-                                  title="Cancel Request"
-                                >
-                                  <span className="material-symbols-outlined text-yellow-400 text-[20px] animate-pulse">
-                                    pending
-                                  </span>
-                                  <span className="text-yellow-300 text-sm font-medium">
-                                    Pending
-                                  </span>
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={async () => {
-                                    await api.joinRoom(token, r.room_id);
-                                    setMsg("join-req");
-                                  }}
-                                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all duration-200 hover:scale-105"
-                                  title="Request to Join"
-                                >
-                                  <span className="material-symbols-outlined text-emerald-400 text-[20px]">
-                                    add_circle
-                                  </span>
-                                  <span className="text-emerald-300 text-sm font-medium">
-                                    Join
-                                  </span>
-                                </button>
-                              )}
+                              <div className="flex items-center space-x-3">
+                                {pending ? (
+                                  <button
+                                    onClick={async () => {
+                                      await api.cancelJoinRequest(
+                                        token,
+                                        r.room_id
+                                      );
+                                      setMsg("cancel-req");
+                                    }}
+                                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 hover:bg-yellow-500/30 transition-all duration-200 hover:scale-105"
+                                    title="Cancel Request"
+                                  >
+                                    <span className="material-symbols-outlined text-yellow-400 text-[20px] animate-pulse">
+                                      pending
+                                    </span>
+                                    <span className="text-yellow-300 text-sm font-medium">
+                                      Pending
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={async () => {
+                                      await api.joinRoom(token, r.room_id);
+                                      setMsg("join-req");
+                                    }}
+                                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all duration-200 hover:scale-105"
+                                    title="Request to Join"
+                                  >
+                                    <span className="material-symbols-outlined text-emerald-400 text-[20px]">
+                                      add_circle
+                                    </span>
+                                    <span className="text-emerald-300 text-sm font-medium">
+                                      Join
+                                    </span>
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                    {availableRooms.length === 0 && (
+                        );
+                      })
+                    ) : (
                       <div className="text-center py-16">
-                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
-                          <span className="material-symbols-outlined text-gray-400 text-[24px]">
-                            search_off
-                          </span>
-                        </div>
-                        <p className="text-gray-400 text-lg">
-                          No rooms available
-                        </p>
-                        <p className="text-gray-500 text-sm mt-1">
-                          Check back later for new rooms
+                        <p className="text-gray-400">
+                          No rooms match “{searchQuery}”.
                         </p>
                       </div>
                     )}
@@ -549,80 +792,130 @@ export default function DashboardPage() {
       )}
       {/* Create Room Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-md bg-gradient-to-br from-gray-800/60 to-gray-700/50 border border-gray-600/40 rounded-2xl shadow-xl backdrop-blur-xl p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-white">Create New Room</h2>
-            </div>
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4"
+        >
+          <div
+            className={`
+              w-full h-full max-w-full rounded-none overflow-hidden
+              bg-gray-800/80 border border-gray-600 sm:rounded-2xl shadow-2xl backdrop-blur-xl
+              sm:max-w-[95%] sm:h-[95vh]
+              lg:max-w-4xl lg:h-[90vh]
+              ${styles.modalSlideUp}
+              p-6 sm:p-8 lg:p-10 flex flex-col overflow-y-auto
+            `}
+          >
+            {/* Close ボタン */}
+            <button
+              onClick={() => {
+                setShowCreateModal(false);
+                setFormError(null);
+              }}
+              aria-label="Close modal"
+              className="absolute top-4 right-4 text-gray-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-full p-2"
+            >
+              <span className="material-symbols-outlined text-xl">close</span>
+            </button>
 
-            <div className="space-y-5">
+            {/* ヘッダー */}
+            <header className="flex items-center mb-6">
+              <span className="material-symbols-outlined text-blue-400 text-3xl mr-3">
+                add_circle
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-wide">
+                Create New Room
+              </h2>
+            </header>
+
+            {/* 入力フォーム */}
+            <form className="flex-1 space-y-6">
               <div>
+                <label
+                  htmlFor="room-name"
+                  className="block text-gray-300 text-sm font-medium mb-2"
+                >
+                  Room Name <span className="text-red-400">*</span>
+                </label>
                 <input
+                  id="room-name"
                   type="text"
-                  placeholder="Enter room name ※"
+                  placeholder="Enter room name"
                   value={newRoom.name}
+                  maxLength={20}
                   onChange={(e) => {
                     setNewRoom({ ...newRoom, name: e.target.value });
                     setFormError(null);
                   }}
-                  maxLength={20}
-                  className="w-full px-4 py-3 bg-gray-800/60 text-white placeholder-gray-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition"
+                  className="w-full px-4 py-3 bg-gray-900/60 text-white placeholder-gray-400 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 shadow-inner"
                 />
-                <p className="text-gray-400 text-xs mt-1">
+                <p className="text-gray-400 text-xs mt-1 text-right">
                   {newRoom.name.length} / 20
                 </p>
               </div>
 
               <div>
+                <label
+                  htmlFor="room-description"
+                  className="block text-gray-300 text-sm font-medium mb-2"
+                >
+                  Description
+                </label>
                 <textarea
-                  placeholder="Enter description"
+                  id="room-description"
+                  placeholder="Enter a brief description for your room"
                   value={newRoom.description}
+                  maxLength={100}
+                  rows={4}
                   onChange={(e) => {
                     setNewRoom({ ...newRoom, description: e.target.value });
                     setFormError(null);
                   }}
-                  maxLength={100}
-                  rows={3}
-                  className="w-full px-4 py-3 bg-gray-800/60 text-white placeholder-gray-400 rounded-lg shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition resize-none"
+                  className="w-full px-4 py-3 bg-gray-900/60 text-white placeholder-gray-400 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 resize-none shadow-inner"
                 />
-                <p className="text-gray-400 text-xs mt-1">
+                <p className="text-gray-400 text-xs mt-1 text-right">
                   {newRoom.description.length} / 100
                 </p>
               </div>
 
-              {/* エラーメッセージ */}
-              {formError && <p className="text-red-400 text-sm">{formError}</p>}
+              {formError && (
+                <p className="text-red-400 text-sm mt-2 text-center">
+                  {formError}
+                </p>
+              )}
+            </form>
 
-              <div className="flex space-x-3 pt-2">
-                <button
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setFormError(null);
-                  }}
-                  className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-md transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateRoom}
-                  className="flex-1 px-4 py-3 bg-green-700 hover:bg-green-600 text-white rounded-md shadow-md hover:shadow-lg transition"
-                >
-                  Create Room
-                </button>
-              </div>
+            {/* アクションボタン */}
+            <div className="flex space-x-4 mt-6">
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setFormError(null);
+                }}
+                className="flex-1 px-5 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors duration-200 font-medium shadow"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateRoom}
+                className="flex-1 px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-all duration-200 font-bold shadow-lg hover:shadow-xl"
+              >
+                Create Room
+              </button>
             </div>
           </div>
         </div>
       )}
-
       {showProfileModal && (
-        <div className="fixed inset-0 bg-black/40 w-full h-screen flex items-center justify-center z-50 p-0 sm:p-6 lg:p-8">
-          <div className="relative w-full h-full sm:w-full sm:h-auto sm:max-w-2xl sm:max-h-[90vh] rounded-none sm:rounded-2xl bg-gradient-to-br from-gray-900 to-gray-800 backdrop-blur-xl shadow-2xl flex flex-col">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm w-full h-full flex items-center justify-center z-50 animate-fade-in-up">
+          {/* Main Modal Container: 常に全画面表示 */}
+          <div className="relative w-full h-full bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 shadow-2xl flex flex-col overflow-hidden animate-scale-up">
             {/* Close Button */}
-            <div className="absolute top-4 right-4 z-10">
+            <div className="absolute top-4 right-4 z-20">
               <button
                 onClick={() => setShowProfileModal(false)}
-                className="w-10 h-10 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-12 h-12 bg-gray-800/80 hover:bg-gray-700/80 rounded-full flex items-center justify-center transition-all duration-300 backdrop-blur-sm border border-gray-600/50 hover:border-gray-500/50 shadow-lg animate-pop"
                 title="Close"
               >
                 <span className="material-symbols-outlined text-white text-2xl">
@@ -631,14 +924,11 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <div className="p-6 sm:p-8 lg:p-10 overflow-y-auto custom-scrollbar flex-grow">
-              {/* Avatar and Name Edit Section */}
-              <div className="text-center mb-8 pt-4">
-                <div
-                  onClick={() => setIsEditingName(true)}
-                  className="w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-600 to-purple-700 overflow-hidden border-4 border-gray-600 cursor-pointer shadow-lg transform transition-all duration-300 hover:scale-105 hover:border-blue-400"
-                  title="Click to edit display name"
-                >
+            {/* Header Section: 旧レイアウト ＋ 新統計スタイル */}
+            <div className="p-6 sm:p-8 border-b border-gray-700/50">
+              <div className="flex items-center space-x-4 sm:space-x-6">
+                {/* Avatar */}
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-700 overflow-hidden border-4 border-gray-600/50 shadow-lg flex-shrink-0">
                   {me.icon_url ? (
                     <img
                       src={me.icon_url}
@@ -646,137 +936,666 @@ export default function DashboardPage() {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-white font-bold text-4xl sm:text-5xl">
+                    <div className="w-full h-full flex items-center justify-center text-white font-bold text-3xl">
                       {me.display_name?.charAt(0).toUpperCase()}
                     </div>
                   )}
                 </div>
 
-                <div className="mx-auto max-w-md p-4 sm:p-6 rounded-xl bg-gray-800/60 shadow-xl border border-gray-700">
+                {/* User Info & Stats Container */}
+                <div className="flex-grow min-w-0">
                   {isEditingName ? (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       <input
                         type="text"
                         value={editedName}
                         onChange={(e) => setEditedName(e.target.value)}
                         maxLength={50}
-                        className="w-full bg-gray-900/70 border border-gray-600 rounded-lg px-4 py-2 text-white text-center text-lg placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors duration-200"
+                        className="w-full bg-gray-800/50 border border-gray-600/50 rounded-xl px-4 py-2 text-white text-lg placeholder-gray-400 focus:outline-none focus:border-blue-500/50"
                         placeholder="Enter display name"
                       />
-                      <div className="flex justify-center space-x-6">
+                      <div className="flex space-x-3">
                         <button
                           onClick={async () => {
-                            const trimmed = editedName.trim();
-                            if (trimmed === me.display_name) {
+                            const t = editedName.trim();
+                            // 名前が空、または変更がない場合は何もしない
+                            if (!t || t === me.display_name) {
                               setIsEditingName(false);
                               return;
                             }
-                            if (!trimmed) {
-                              alert("表示名を入力してください");
-                              return;
+                            try {
+                              await api.updateMe(token, { display_name: t });
+                              setMe({ ...me, display_name: t }); // フロントエンドの状態も更新
+                            } catch (err) {
+                              console.error("Failed to update name:", err);
+                              // ここでエラーメッセージをユーザーに表示することも可能です
+                            } finally {
+                              setIsEditingName(false); // 成功・失敗にかかわらず編集モードを閉じる
                             }
-                            await api.updateMe(token, {
-                              display_name: trimmed,
-                            });
-                            setMe({ ...me, display_name: trimmed });
-                            setIsEditingName(false);
                           }}
-                          className="text-green-400 hover:text-green-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
-                          title="Save"
+                          className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-white font-medium"
                         >
-                          <span className="material-symbols-outlined text-[32px]">
+                          <span className="material-symbols-outlined text-lg">
                             check_circle
                           </span>
+                          <span>Save</span>
                         </button>
                         <button
                           onClick={() => {
-                            setEditedName(me.display_name);
+                            setEditedName(me.display_name); // 変更をリセット
                             setIsEditingName(false);
                           }}
-                          className="text-red-400 hover:text-red-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
-                          title="Cancel"
+                          className="flex items-center space-x-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg text-white font-medium"
                         >
-                          <span className="material-symbols-outlined text-[32px]">
+                          <span className="material-symbols-outlined text-lg">
                             cancel
                           </span>
+                          <span>Cancel</span>
                         </button>
                       </div>
                     </div>
                   ) : (
                     <>
-                      <h3 className="text-xl sm:text-2xl font-bold text-white mb-1">
+                      <h2
+                        className="text-2xl sm:text-3xl font-bold text-white mb-1 cursor-pointer hover:text-blue-400 transition-colors truncate"
+                        onClick={() => setIsEditingName(true)}
+                        title="Click to edit display name"
+                      >
                         {me.display_name}
-                      </h3>
-                      <p className="text-gray-400 text-sm sm:text-base">
+                      </h2>
+                      <p className="text-gray-400 text-sm sm:text-base mb-3 truncate">
                         {me.email}
                       </p>
+
+                      {/* Quick Stats: 新しいスタイルを適用 */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {" "}
+                        {/* gapを縮小 */}
+                        <div className="flex items-center space-x-1.5 bg-blue-900/30 px-2.5 py-1 rounded-full border border-blue-700/30">
+                          {" "}
+                          {/* paddingとspaceを縮小 */}
+                          <span className="material-symbols-outlined text-blue-400 text-base">
+                            meeting_room
+                          </span>{" "}
+                          {/* text-lg から text-baseへ */}
+                          <span className="text-white font-semibold text-sm">
+                            {rooms.length}
+                          </span>{" "}
+                          {/* 文字サイズをsmに */}
+                          <span className="text-blue-200 text-xs">
+                            Rooms
+                          </span>{" "}
+                          {/* 文字サイズをxsに */}
+                        </div>
+                        <div className="flex items-center space-x-1.5 bg-green-900/30 px-2.5 py-1 rounded-full border border-green-700/30">
+                          <span className="material-symbols-outlined text-green-400 text-base">
+                            add_box
+                          </span>
+                          <span className="text-white font-semibold text-sm">
+                            {myRooms.length}
+                          </span>
+                          <span className="text-green-200 text-xs">
+                            Created
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-1.5 bg-purple-900/30 px-2.5 py-1 rounded-full border border-purple-700/30">
+                          <span className="material-symbols-outlined text-purple-400 text-base">
+                            people
+                          </span>
+                          <span className="text-white font-semibold text-sm">
+                            {Object.values(onlineUsers).reduce(
+                              (s, u) => s + u.size,
+                              0
+                            )}
+                          </span>
+                          <span className="text-purple-200 text-xs">
+                            Online
+                          </span>
+                        </div>
+                      </div>
                     </>
                   )}
                 </div>
               </div>
+            </div>
 
-              {/* --- */}
-              <hr className="border-gray-700 my-8" />
-
-              {/* Stats Section */}
-              <div className="grid grid-cols-3 gap-4 sm:gap-6 mb-8">
-                {/* Joined Rooms */}
-                <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-blue-900/40 to-blue-700/30 border border-blue-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
-                  <span className="material-symbols-outlined text-blue-300 text-3xl sm:text-4xl mb-1">
-                    meeting_room
-                  </span>
-                  <div className="text-xl sm:text-2xl font-bold text-white">
-                    {rooms.length}
-                  </div>
-                  <div className="text-xs sm:text-sm text-blue-200">
-                    Joined Rooms
-                  </div>
-                </div>
-
-                {/* Created Rooms */}
-                <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-green-900/40 to-emerald-700/30 border border-green-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
-                  <span className="material-symbols-outlined text-green-300 text-3xl sm:text-4xl mb-1">
-                    add_box
-                  </span>
-                  <div className="text-xl sm:text-2xl font-bold text-white">
-                    {myRooms.length}
-                  </div>
-                  <div className="text-xs sm:text-sm text-green-200">
-                    Created Rooms
-                  </div>
-                </div>
-
-                {/* Active Users */}
-                <div className="p-3 sm:p-5 rounded-xl bg-gradient-to-br from-purple-900/40 to-pink-700/30 border border-purple-600/30 backdrop-blur-md shadow-lg transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl flex flex-col items-center text-center">
-                  <span className="material-symbols-outlined text-purple-300 text-3xl sm:text-4xl mb-1">
-                    people
-                  </span>
-                  <div className="text-xl sm:text-2xl font-bold text-white">
-                    {Object.values(onlineUsers).reduce((s, u) => s + u.size, 0)}
-                  </div>
-                  <div className="text-xs sm:text-sm text-purple-200">
-                    Active Users
-                  </div>
-                </div>
-              </div>
-
-              {/* --- */}
-              <hr className="border-gray-700 my-8" />
-
-              {/* Logout Button */}
-              <div className="flex justify-center">
+            {/* Tab Navigation: スマホでラベルを非表示にする修正 */}
+            <div className="flex border-b border-gray-700/50 bg-gray-800/20">
+              {[
+                {
+                  id: "overview",
+                  label: "Overview",
+                  icon: "dashboard",
+                  color: "blue",
+                },
+                {
+                  id: "recent_battles",
+                  label: "PON",
+                  icon: "leaderboard",
+                  color: "purple",
+                },
+                {
+                  id: "sato_transactions",
+                  label: "SATO",
+                  icon: "payments",
+                  color: "emerald",
+                },
+              ].map((tab) => (
                 <button
-                  onClick={async () => {
-                    await signOut(auth);
-                    router.replace("/");
-                  }}
-                  className="w-full max-w-sm px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-200 hover:text-white text-lg font-medium transition-all duration-300 flex items-center justify-center space-x-3 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  // flex-1でスマホ時に均等幅に、sm以上でpaddingを調整
+                  className={`flex flex-1 sm:flex-none items-center justify-center space-x-2 px-2 sm:px-6 py-4 border-b-2 transition-all duration-300 font-medium ${
+                    activeTab === tab.id
+                      ? `border-${tab.color}-500 text-${tab.color}-400 bg-${tab.color}-900/20`
+                      : "border-transparent text-gray-400 hover:text-white hover:bg-gray-700/30"
+                  }`}
                 >
-                  <span className="material-symbols-outlined text-[24px]">
-                    logout
+                  <span className="material-symbols-outlined text-xl">
+                    {tab.icon}
                   </span>
-                  <span>Logout</span>
+                  {/* sm以上の画面でのみラベルを表示 */}
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </button>
+              ))}
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-y-auto scrollbar-hide">
+              <div className="p-6 sm:p-8">
+                {/* Overview Tab Content: 改善版 */}
+                {activeTab === "overview" && (
+                  <div className="space-y-8 animate-fade-in-up">
+                    {/* Layout: Pie on left, stats cards on right (2-col on PC, 1-col on mobile) */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      {/* ─── Pie Chart ─── */}
+                      <div className="bg-gradient-to-br from-gray-800/60 to-gray-700/30 p-6 rounded-2xl border border-gray-700/50">
+                        <div className="flex items-center space-x-3 mb-6">
+                          <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-blue-400 text-xl">
+                              pie_chart
+                            </span>
+                          </div>
+                          <h3 className="text-2xl font-bold text-white">
+                            Win/Loss Ratio
+                          </h3>
+                        </div>
+                        <div className="w-full h-64 relative">
+                          {stats.ponRounds > 0 ? (
+                            <>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={[
+                                      { name: "Wins", value: stats.wins },
+                                      {
+                                        name: "Losses",
+                                        value: stats.ponRounds - stats.wins,
+                                      },
+                                    ]}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={70}
+                                    outerRadius={100}
+                                    dataKey="value"
+                                    stroke="none"
+                                    paddingAngle={3}
+                                  >
+                                    <Cell fill="#3B82F6" />
+                                    <Cell fill="#EF4444" />
+                                  </Pie>
+                                  <Tooltip
+                                    contentStyle={{
+                                      backgroundColor: "rgba(31,41,55,0.8)",
+                                      backdropFilter: "blur(4px)",
+                                      border: "1px solid rgba(75,85,99,0.5)",
+                                      borderRadius: "0.75rem",
+                                      color: "#FFF",
+                                    }}
+                                    cursor={{ fill: "rgba(255,255,255,0.1)" }}
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span className="text-4xl font-bold text-white">
+                                  {stats.winRate}%
+                                </span>
+                                <span className="text-gray-400 text-sm">
+                                  Win Rate
+                                </span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                              <span className="material-symbols-outlined text-6xl">
+                                pie_chart_outlined
+                              </span>
+                              <p className="mt-4">No games played yet</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ─── Stats Cards ─── */}
+                      {/* ─── Stats Cards ─── */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        {[
+                          {
+                            icon: "crossword",
+                            value: stats.ponRounds,
+                            label: "Total Games",
+                          },
+                          {
+                            icon: "emoji_events",
+                            value: `${stats.winRate}%`,
+                            label: "Win Rate",
+                          },
+                          {
+                            icon: "whatshot",
+                            value: stats.bestStreak,
+                            label: "Best Streak",
+                          },
+                          {
+                            icon: "leaderboard",
+                            value: stats.totalPonPts,
+                            label: "Total Points",
+                          },
+                          {
+                            icon: "functions",
+                            value: stats.avgPonPts,
+                            label: "Average Score",
+                          },
+                          {
+                            icon: "swap_vert",
+                            value: `${stats.maxPon} / ${stats.minPon}`,
+                            label: "Max / Min Score",
+                          },
+                        ].map((stat, i) => {
+                          // グラデーションを適用するカードのインデックス
+                          const specialIndices = [0, 2, 4];
+                          const isSpecial = specialIndices.includes(i);
+
+                          const specialBg = [
+                            "from-blue-800/40 to-blue-600/20 border-blue-500/30",
+                            "from-green-800/40 to-green-600/20 border-green-500/30",
+                            "from-purple-800/40 to-purple-600/20 border-purple-500/30",
+                          ][specialIndices.indexOf(i) % 3];
+
+                          const baseClass = isSpecial
+                            ? `bg-gradient-to-br ${specialBg}`
+                            : "bg-gray-800/50 border-gray-700/50";
+
+                          return (
+                            <div
+                              key={stat.label}
+                              className={`${baseClass} p-4 rounded-2xl border shadow-md`}
+                            >
+                              <div className="text-center space-y-2">
+                                <span className="material-symbols-outlined text-3xl text-white">
+                                  {stat.icon}
+                                </span>
+                                <div className="text-2xl font-bold text-white">
+                                  {stat.value}
+                                </div>
+                                <div className="text-gray-300 text-sm font-medium">
+                                  {stat.label}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PON Tab Content */}
+                {activeTab === "recent_battles" && (
+                  <div className="space-y-8 animate-fade-in-up">
+                    {/* Header */}
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center">
+                        <span className="material-symbols-outlined text-purple-400 text-xl">
+                          leaderboard
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-bold text-white">
+                        Recent PON
+                      </h3>
+                    </div>
+
+                    {/* 履歴リストとグラフを左右並びにするグリッド */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      {/* ─── 履歴リスト ─── */}
+                      {stats.groupedOpponents.length > 0 ? (
+                        <div className="space-y-4">
+                          {stats.groupedOpponents
+                            .slice(0, 10)
+                            .map((round, index) => (
+                              <Link
+                                key={index}
+                                href={`/rooms/${round.roomId}`}
+                                className="block bg-gradient-to-r from-gray-800/60 to-gray-700/30 p-6 rounded-xl border border-gray-700/50 backdrop-blur-sm hover:shadow-lg transition-all duration-300"
+                              >
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-4 sm:space-y-0">
+                                  <div className="flex items-center space-x-4">
+                                    <div className="flex items-center space-x-2 text-gray-400">
+                                      <span className="material-symbols-outlined text-sm">
+                                        schedule
+                                      </span>
+                                      <span className="text-sm font-medium">
+                                        {round.date}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-3">
+                                      {round.participants.map((p) => (
+                                        <div
+                                          key={p.uid}
+                                          className="flex items-center space-x-2 bg-gray-700/50 px-3 py-1.5 rounded-full border border-gray-600/50"
+                                        >
+                                          <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-gray-500">
+                                            {p.iconUrl ? (
+                                              <img
+                                                src={p.iconUrl}
+                                                alt={p.displayName}
+                                                className="w-full h-full object-cover"
+                                              />
+                                            ) : (
+                                              <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
+                                                {p.displayName
+                                                  .charAt(0)
+                                                  .toUpperCase()}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <span
+                                            className={`font-bold text-sm ${
+                                              p.score > 0
+                                                ? "text-emerald-400"
+                                                : p.score < 0
+                                                  ? "text-red-400"
+                                                  : "text-gray-400"
+                                            }`}
+                                          >
+                                            {p.score > 0
+                                              ? `+${p.score}`
+                                              : p.score}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center space-x-2 text-purple-400">
+                                    <span>Go Room</span>
+                                    <span className="material-symbols-outlined text-lg">
+                                      arrow_forward
+                                    </span>
+                                  </div>
+                                </div>
+                              </Link>
+                            ))}
+                          {stats.groupedOpponents.length > 10 && (
+                            <div className="text-center pt-4">
+                              <button className="text-blue-400 hover:text-blue-300 font-semibold">
+                                Show More
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center py-20 col-span-full">
+                          <div className="w-20 h-20 mx-auto mb-6 bg-gray-700/30 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-gray-400 text-3xl">
+                              leaderboard
+                            </span>
+                          </div>
+                          <h4 className="text-xl font-semibold text-white mb-2">
+                            No PON yet
+                          </h4>
+                          <p className="text-gray-400">
+                            Join a room and start playing to see your battle
+                            history!
+                          </p>
+                        </div>
+                      )}
+
+                      {/* ─── Performance Timeline ─── */}
+                      <div className="bg-gradient-to-br from-gray-800/60 to-gray-700/30 p-8 rounded-2xl border border-gray-700/50 backdrop-blur-sm">
+                        <div className="flex items-center space-x-3 mb-6">
+                          <div className="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-purple-400 text-xl">
+                              show_chart
+                            </span>
+                          </div>
+                          <h3 className="text-2xl font-bold text-white">
+                            Performance Timeline
+                          </h3>
+                        </div>
+                        {performanceData.length > 1 ? (
+                          <div className="h-80">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart
+                                data={performanceData}
+                                margin={{
+                                  top: 5,
+                                  right: 20,
+                                  left: -10,
+                                  bottom: 5,
+                                }}
+                              >
+                                <CartesianGrid
+                                  strokeDasharray="3 3"
+                                  stroke="#374151"
+                                />
+                                <XAxis dataKey="round" stroke="#9CA3AF" />
+                                <YAxis stroke="#9CA3AF" />
+                                <Tooltip
+                                  contentStyle={{
+                                    backgroundColor: "rgba(31, 41, 55, 0.8)",
+                                    backdropFilter: "blur(4px)",
+                                    border: "1px solid rgba(75, 85, 99, 0.5)",
+                                    borderRadius: "0.75rem",
+                                    color: "#FFFFFF",
+                                  }}
+                                />
+                                <Line
+                                  type="monotone"
+                                  dataKey="score"
+                                  stroke="#A78BFA"
+                                  strokeWidth={3}
+                                  dot={{ fill: "#8B5CF6", r: 4 }}
+                                  activeDot={{
+                                    r: 7,
+                                    stroke: "#A78BFA",
+                                    fill: "#A78BFA",
+                                  }}
+                                />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        ) : (
+                          <div className="text-center py-20 text-gray-400">
+                            <span className="material-symbols-outlined text-4xl">
+                              show_chart
+                            </span>
+                            <p className="mt-4">
+                              At least 2 games needed to show performance chart.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SATO Transactions Tab Content */}
+                {activeTab === "sato_transactions" && (
+                  <div className="space-y-8 animate-fade-in-up">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center">
+                        <span className="material-symbols-outlined text-emerald-400 text-xl">
+                          payments
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-bold text-white">
+                        SATO Transactions
+                      </h3>
+                    </div>
+
+                    {userPointHistory.filter((r) =>
+                      r.round_id.startsWith("SATO")
+                    ).length > 0 ? (
+                      <div className="space-y-8">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                          {[
+                            {
+                              icon: "trending_up",
+                              value: stats.satoIn,
+                              label: "Total Received",
+                              color: "emerald",
+                            },
+                            {
+                              icon: "trending_down",
+                              value: stats.satoOut,
+                              label: "Total Sent",
+                              color: "rose",
+                            },
+                            {
+                              icon: "account_balance",
+                              value: stats.satoNet,
+                              label: "Net Balance",
+                              color: "blue",
+                            },
+                          ].map((stat) => (
+                            <div
+                              key={stat.label}
+                              className={`bg-gradient-to-br from-${stat.color}-900/40 to-${stat.color}-700/20 p-6 rounded-2xl border border-${stat.color}-600/30 backdrop-blur-sm hover:shadow-xl transition-all duration-300`}
+                            >
+                              <div className="text-center space-y-3">
+                                <div
+                                  className={`w-16 h-16 mx-auto bg-${stat.color}-500/20 rounded-full flex items-center justify-center`}
+                                >
+                                  <span
+                                    className={`material-symbols-outlined text-${stat.color}-400 text-3xl`}
+                                  >
+                                    {stat.icon}
+                                  </span>
+                                </div>
+                                <div className="text-3xl font-bold text-white">
+                                  {stat.value}
+                                </div>
+                                <div
+                                  className={`text-${stat.color}-200 text-sm font-medium`}
+                                >
+                                  {stat.label}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="bg-gradient-to-br from-gray-800/60 to-gray-700/30 p-8 rounded-2xl border border-gray-700/50 backdrop-blur-sm">
+                          <div className="flex items-center space-x-3 mb-6">
+                            <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center">
+                              <span className="material-symbols-outlined text-emerald-400 text-xl">
+                                receipt_long
+                              </span>
+                            </div>
+                            <h4 className="text-2xl font-bold text-white">
+                              Transaction History
+                            </h4>
+                          </div>
+                          <div className="space-y-4">
+                            {userPointHistory
+                              .filter((r) => r.round_id.startsWith("SATO"))
+                              .slice(0, 10)
+                              .map((round) => {
+                                const myPoint = round.points.find(
+                                  (p) => p.uid === me.uid
+                                );
+                                const isPositive = myPoint && myPoint.value > 0;
+                                const date = new Date(
+                                  round.created_at || Date.now()
+                                ).toLocaleString("en-US", {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                });
+                                const otherParticipants = round.points
+                                  .filter((p) => p.uid !== me.uid)
+                                  .map(
+                                    (p) =>
+                                      userList.find((u) => u.uid === p.uid)
+                                        ?.display_name || "Unknown"
+                                  )
+                                  .join(", ");
+
+                                return (
+                                  <div
+                                    key={round.round_id}
+                                    className={`p-4 rounded-xl border ${isPositive ? "bg-emerald-900/30 border-emerald-700/40" : "bg-rose-900/30 border-rose-700/40"}`}
+                                  >
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                                      <div className="flex-grow mb-2 sm:mb-0">
+                                        <span className="font-bold text-white">
+                                          SATO Transfer
+                                        </span>
+                                        <p className="text-gray-300 text-sm">
+                                          {date}
+                                        </p>
+                                        {otherParticipants && (
+                                          <p className="text-gray-300 text-sm mt-1">
+                                            To/From:{" "}
+                                            <span className="font-medium text-gray-200">
+                                              {otherParticipants}
+                                            </span>
+                                          </p>
+                                        )}
+                                      </div>
+                                      <span
+                                        className={`text-2xl font-extrabold ${isPositive ? "text-green-400" : "text-red-400"}`}
+                                      >
+                                        {myPoint
+                                          ? myPoint.value > 0
+                                            ? `+${myPoint.value}`
+                                            : myPoint.value
+                                          : "N/A"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            {userPointHistory.filter((r) =>
+                              r.round_id.startsWith("SATO")
+                            ).length > 10 && (
+                              <div className="text-center pt-4">
+                                <button className="text-blue-400 hover:text-blue-300 font-semibold">
+                                  Show More
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-20">
+                        <div className="w-20 h-20 mx-auto mb-6 bg-gray-700/30 rounded-full flex items-center justify-center">
+                          <span className="material-symbols-outlined text-gray-400 text-3xl">
+                            credit_card_off
+                          </span>
+                        </div>
+                        <h4 className="text-xl font-semibold text-white mb-2">
+                          No SATO transactions found
+                        </h4>
+                        <p className="text-gray-400">
+                          Your SATO transaction history will appear here.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1061,15 +1880,36 @@ export default function AuthPage() {
 "use client";
 
 import { useParams, useRouter, usePathname } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import * as api from "@/lib/api";
 import { auth } from "@/lib/firebaseClient";
 import { onAuthStateChanged } from "firebase/auth";
 import { usePresence } from "@/context/PresenceContext";
 
+import {
+  Scatter,
+  Customized,
+  ScatterChart,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Line,
+  Tooltip,
+} from "recharts";
+
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const router = useRouter();
+  const [historyModalTab, setHistoryModalTab] = useState<"Dashboard" | "Log">(
+    "Dashboard"
+  );
   const { sendEvent } = usePresence();
   const [token, setToken] = useState<string | null>(null);
   const [me, setMe] = useState<any>(null);
@@ -1084,7 +1924,6 @@ export default function RoomPage() {
   const [showApprovalSuccess, setShowApprovalSuccess] = useState(false);
   const [historyType, setHistoryType] = useState<"PON" | "SATO">("PON");
   const [balances, setBalances] = useState<Record<string, number>>({});
-
   const [joinQueue, setJoinQueue] = useState<string[]>([]);
   const [isRoundActive, setIsRoundActive] = useState(false);
   const [currentRoundId, setCurrentRoundId] = useState<string | null>(null);
@@ -1121,6 +1960,195 @@ export default function RoomPage() {
     onlineUsers: ctxOnlineUsers,
     onEvent,
   } = usePresence();
+  // app/rooms/[roomId]/page.tsx
+
+  // ... after the existing useState and useEffect hooks ...
+
+  // --- ダッシュボード用グラフのデータ処理 ---
+  const COLORS = [
+    "#8884d8",
+    "#82ca9d",
+    "#ffc658",
+    "#ff8042",
+    "#00C49F",
+    "#FFBB28",
+    "#FF8042",
+    "#0088FE",
+    "#AF19FF",
+    "#FF4560",
+    "#775DD0",
+    "#546E7A",
+  ];
+
+  // 既存のhistoryStatsのuseMemoをこのコードで置き換えてください
+
+  // 既存の historyStats の useMemo をこちらのコードで置き換えてください
+  const dashboardStats = useMemo(() => {
+    // データが不十分な場合は、早期にデフォルト値を返す
+    if (
+      !pointHistory ||
+      pointHistory.length === 0 ||
+      !room?.members ||
+      Object.keys(userMap).length === 0
+    ) {
+      return {
+        winLossData: [],
+        totalScoresData: [],
+        totalPonRounds: 0,
+        avgParticipantsLastMonth: "0.0",
+        participationData: [],
+        heatmapData: Array(7).fill(0),
+        maxWinStreak: { uid: null, streak: 0, user: null },
+        recent5Stats: { avgParticipants: "0.0", avgTotalPon: "0.0" },
+      };
+    }
+
+    // 1. PON履歴のみを抽出し、時系列にソート
+    const ponRounds = pointHistory
+      .filter((r) => r.round_id.startsWith("PON"))
+      .sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+    if (ponRounds.length === 0) {
+      return {
+        winLossData: [],
+        totalScoresData: [],
+        totalPonRounds: 0,
+        avgParticipantsLastMonth: "0.0",
+        participationData: [],
+        heatmapData: Array(7).fill(0),
+        maxWinStreak: { uid: null, streak: 0, user: null },
+        recent5Stats: { avgParticipants: "0.0", avgTotalPon: "0.0" },
+      };
+    }
+
+    // 2. ユーザーごとの基本統計を計算 (勝利数/敗北数, 総得点, 出場数)
+    const userStats = room.members.map((member: { uid: string }) => {
+      const stats = {
+        uid: member.uid,
+        name: userMap[member.uid]?.display_name || "Unknown",
+        wins: 0,
+        losses: 0,
+        totalScore: 0,
+        appearances: 0,
+      };
+
+      ponRounds.forEach((round) => {
+        const participant = round.points.find((p: any) => p.uid === member.uid);
+        if (participant) {
+          stats.appearances++;
+          stats.totalScore += participant.value;
+          if (participant.value > 0) stats.wins++;
+          else if (participant.value < 0) stats.losses++;
+        }
+      });
+      return stats;
+    });
+
+    // グラフ用にデータを整形
+    const winLossData = userStats.map(({ name, wins, losses }) => ({
+      name,
+      wins,
+      losses,
+    }));
+    const totalScoresData = [...userStats].sort(
+      (a, b) => b.totalScore - a.totalScore
+    );
+    const participationData = [...userStats].sort(
+      (a, b) => b.appearances - a.appearances
+    );
+
+    // 3. 総試合回数 (PON)
+    const totalPonRounds = ponRounds.length;
+
+    // 4. 直近1ヶ月の平均参加人数
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+    const recentRoundsLastMonth = ponRounds.filter(
+      (r) => new Date(r.created_at) > oneMonthAgo
+    );
+    const avgParticipantsLastMonth =
+      recentRoundsLastMonth.length > 0
+        ? (
+            recentRoundsLastMonth.reduce(
+              (sum, round) => sum + round.points.length,
+              0
+            ) / recentRoundsLastMonth.length
+          ).toFixed(1)
+        : "0.0";
+
+    // 6. 曜日別の試合数ヒートマップ
+    const heatmapData = Array(7).fill(0);
+    ponRounds.forEach((r) => {
+      const day = new Date(r.created_at).getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+      heatmapData[day]++;
+    });
+
+    // 7. 連勝記録保持者
+    let maxWinStreak = {
+      uid: null as string | null,
+      streak: 0,
+      user: null as any,
+    };
+    room.members.forEach((member: { uid: string }) => {
+      let currentStreak = 0;
+      let memberMaxStreak = 0;
+      ponRounds.forEach((round) => {
+        const participant = round.points.find((p: any) => p.uid === member.uid);
+        if (participant) {
+          if (participant.value > 0) {
+            currentStreak++;
+          } else {
+            memberMaxStreak = Math.max(memberMaxStreak, currentStreak);
+            currentStreak = 0;
+          }
+        }
+      });
+      memberMaxStreak = Math.max(memberMaxStreak, currentStreak);
+
+      if (memberMaxStreak > maxWinStreak.streak) {
+        maxWinStreak = {
+          uid: member.uid,
+          streak: memberMaxStreak,
+          user: userMap[member.uid],
+        };
+      }
+    });
+
+    // 8. 直近5試合の統計
+    const last5PonRounds = [...ponRounds].reverse().slice(0, 5);
+    let avgParticipants = "0.0";
+    let avgTotalPon = "0.0";
+
+    if (last5PonRounds.length > 0) {
+      const totalParticipants = last5PonRounds.reduce(
+        (sum, r) => sum + r.points.length,
+        0
+      );
+      const totalPonVolume = last5PonRounds.reduce((sum, r) => {
+        const roundTotal = r.points.reduce(
+          (rSum: number, p: any) => rSum + Math.abs(p.value),
+          0
+        );
+        return sum + roundTotal;
+      }, 0);
+      avgParticipants = (totalParticipants / last5PonRounds.length).toFixed(1);
+      avgTotalPon = (totalPonVolume / last5PonRounds.length).toFixed(1);
+    }
+
+    return {
+      winLossData,
+      totalScoresData,
+      totalPonRounds,
+      avgParticipantsLastMonth,
+      participationData,
+      heatmapData,
+      maxWinStreak,
+      recent5Stats: { avgParticipants, avgTotalPon },
+    };
+  }, [pointHistory, room, userMap]);
 
   // Firebase ID token
   useEffect(() => {
@@ -1278,8 +2306,50 @@ export default function RoomPage() {
     setFinalTable(null);
     setApprovedBy(new Set());
   }
+  // 既存の他のフックが定義されている場所に追加
 
-  // inside RoomPage(), after your existing hooks:
+  // PONの累計スコア推移グラフ用のデータをメモ化
+  const { ponData, memberColors } = useMemo(() => {
+    const ponRounds = pointHistory
+      .filter((r) => r.round_id.startsWith("PON"))
+      .sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+    if (!room || ponRounds.length === 0)
+      return { ponData: [], memberColors: {} };
+
+    const memberUids = room.members.map((m: any) => m.uid);
+    const memberColors = memberUids.reduce(
+      (acc: Record<string, string>, uid: string, i: number) => {
+        acc[uid] = COLORS[i % COLORS.length];
+        return acc;
+      },
+      {}
+    );
+
+    const cumulativeScores: Record<string, number> = {};
+    memberUids.forEach((uid: string) => (cumulativeScores[uid] = 0));
+
+    const data = ponRounds.map((round, index) => {
+      const roundData: any = {
+        name: `Round ${index + 1}`,
+        date: new Date(round.created_at).toLocaleDateString(),
+      };
+      round.points.forEach((p: { uid: string; value: number }) => {
+        if (cumulativeScores[p.uid] !== undefined) {
+          cumulativeScores[p.uid] += p.value;
+        }
+      });
+      for (const uid in cumulativeScores) {
+        roundData[uid] = cumulativeScores[uid];
+      }
+      return roundData;
+    });
+
+    return { ponData: data, memberColors };
+  }, [pointHistory, room]);
 
   useEffect(() => {
     if (!me) return;
@@ -1606,74 +2676,6 @@ export default function RoomPage() {
           </div>
 
           {/* 待機中のリクエスト */}
-          {/* Pending Join Requests */}
-          {joinQueue.length > 0 && (
-            <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
-              {/* header */}
-              <h3 className="flex items-center gap-2 text-lg font-bold text-amber-400 mb-3">
-                <span className="material-symbols-outlined">
-                  notification_important
-                </span>
-                Join Requests ({joinQueue.length})
-              </h3>
-              {/* list */}
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {joinQueue.map((uid) => {
-                  const user = userMap[uid] || { display_name: uid };
-                  const online = ctxOnlineUsers[roomId]?.has(uid);
-                  return (
-                    <div
-                      key={uid}
-                      className="flex items-center justify-between bg-gray-800/50 hover:bg-gray-800/70 rounded-xl p-3 transition-colors"
-                    >
-                      {/* user info */}
-                      <div className="flex items-center gap-3">
-                        {/* online indicator */}
-                        <span
-                          className={`w-3 h-3 rounded-full border-2 border-gray-800 ${
-                            online ? "bg-green-400" : "bg-gray-600"
-                          }`}
-                          title={online ? "Online" : "Offline"}
-                        />
-                        {/* avatar */}
-                        {user.icon_url ? (
-                          <img
-                            src={user.icon_url}
-                            alt={user.display_name}
-                            className="w-10 h-10 rounded-full object-cover shadow-lg"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold text-white shadow-lg">
-                            {user.display_name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        {/* name */}
-                        <span className="font-medium text-white truncate">
-                          {user.display_name}
-                        </span>
-                      </div>
-                      {/* actions */}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleDecision("approve", uid)}
-                          className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() => handleDecision("reject", uid)}
-                          className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Members*/}
           {/* Leaderboard as Members (section and cards) */}
           <section>
@@ -1774,7 +2776,7 @@ export default function RoomPage() {
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg">
                     <span className="material-symbols-outlined text-white text-xl">
-                      stars
+                      leaderboard
                     </span>
                   </div>
                   <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent tracking-wide">
@@ -1810,7 +2812,7 @@ export default function RoomPage() {
                       <span className="material-symbols-outlined">
                         play_arrow
                       </span>
-                      Start
+                      PON
                     </span>
                   </button>
                 ) : (
@@ -2096,306 +3098,722 @@ export default function RoomPage() {
           </p>
         </div>
       )}
+
       {showHistoryModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in">
-          <div
-            className="
-  w-full h-full
-  sm:w-[calc(100%-2rem)] sm:max-w-3xl sm:h-[80vh]
-  bg-gray-900/90 … 
-  rounded-none sm:rounded-2xl
-  overflow-hidden flex flex-col
-"
-          >
-            {/* ヘッダー + タブ */}
-            <div className="bg-gray-800/80 px-6 py-4 flex flex-col">
-              <div className="flex items-center justify-end mb-2">
-                <button
-                  onClick={() => setShowHistoryModal(false)}
-                  className="text-gray-400 hover:text-white p-1 rounded"
-                >
-                  <span className="material-symbols-outlined text-2xl">
-                    close
-                  </span>
-                </button>
-              </div>
-
-              <div className="flex space-x-8">
-                {["PON", "SATO"].map((type) => (
+        <div className="z-10 fixed inset-0 w-screen h-screen bg-black/90 backdrop-blur-sm flex flex-col overflow-hidden">
+          <div className="w-full h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 shadow-2xl flex flex-col overflow-hidden border border-slate-700/50">
+            {/* Enhanced Modal Header */}
+            <header className="flex-shrink-0 bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-md p-3 sm:p-4 border-b border-slate-600/40 flex items-center justify-between">
+              <div className="flex items-center gap-2 sm:gap-4">
+                <div className="flex items-center gap-1 sm:gap-2 bg-slate-700/60 backdrop-blur-sm p-1 rounded-lg sm:p-1.5 rounded-xl border border-slate-600/30">
                   <button
-                    key={type}
-                    onClick={() => setHistoryType(type as "PON" | "SATO")}
-                    className={`relative pb-2 text-sm font-medium transition
-                                                            ${
-                                                              historyType ===
-                                                              type
-                                                                ? "text-white"
-                                                                : "text-gray-400 hover:text-gray-200"
-                                                            } `}
+                    onClick={() => setHistoryModalTab("Dashboard")}
+                    className={`relative flex items-center justify-center px-3 py-2 text-xs sm:px-4 sm:py-2.5 sm:text-sm font-semibold rounded-md sm:rounded-lg transition-all duration-300 ${
+                      historyModalTab === "Dashboard"
+                        ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 transform scale-105"
+                        : "text-slate-300 hover:bg-slate-600/50 hover:text-white"
+                    }`}
+                    title="Dashboard" // Tooltip for mobile
                   >
-                    {type}
-                    {historyType === type && (
-                      <span className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-500 rounded-full" />
-                    )}
+                    <span className="material-symbols-outlined text-base sm:text-sm mr-0 sm:mr-2">
+                      dashboard
+                    </span>
+                    <span className="hidden sm:inline">Dashboard</span>
                   </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6 scrollbar-hide scrollbar-thumb-gray-700 scrollbar-track-gray-800">
-              {filteredHistory.length === 0 ? (
-                <div className="flex flex-col items-center py-20">
-                  <span className="material-symbols-outlined text-gray-500 text-4xl mb-4">
-                    history
-                  </span>
-                  <p className="text-gray-500 text-lg">No history available</p>
-                  <p className="text-gray-600 text-sm mt-1">
-                    Game records will appear here
-                  </p>
+                  <button
+                    onClick={() => setHistoryModalTab("Log")}
+                    className={`relative flex items-center justify-center px-3 py-2 text-xs sm:px-4 sm:py-2.5 sm:text-sm font-semibold rounded-md sm:rounded-lg transition-all duration-300 ${
+                      historyModalTab === "Log"
+                        ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 transform scale-105"
+                        : "text-slate-300 hover:bg-slate-600/50 hover:text-white"
+                    }`}
+                    title="Transaction Log" // Tooltip for mobile
+                  >
+                    <span className="material-symbols-outlined text-base sm:text-sm mr-0 sm:mr-2">
+                      history
+                    </span>
+                    <span className="hidden sm:inline">Transaction Log</span>
+                  </button>
                 </div>
-              ) : (
-                [...filteredHistory]
-                  .sort(
-                    (a, b) =>
-                      new Date(b.created_at).getTime() -
-                      new Date(a.created_at).getTime()
-                  )
-                  .map((rec) => {
-                    const sender = rec.points.find((p) => p.value > 0)!;
-                    const receiver = rec.points.find((p) => p.value < 0)!;
-                    const amount = Math.abs(sender.value);
+              </div>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-slate-700/50 hover:bg-red-500/20 border border-slate-600/30 hover:border-red-500/50 transition-all duration-300 group"
+              >
+                <span className="material-symbols-outlined text-slate-300 group-hover:text-red-400 transition-colors text-xl sm:text-2xl">
+                  close
+                </span>
+              </button>
+            </header>
 
-                    if (historyType === "SATO") {
+            {/* Content Body */}
+            <main className="flex-1 overflow-y-auto scrollbar-hide overflow-x-hidden p-4 sm:p-6">
+              {historyModalTab === "Dashboard" &&
+                (() => {
+                  const stats = dashboardStats;
+
+                  // グラフのカスタムツールチップ
+                  const CustomTooltip = ({ active, payload, label }: any) => {
+                    if (active && payload && payload.length) {
+                      // ツールチップに表示するユーザー情報を特定
+                      const user =
+                        Object.values(userMap).find(
+                          (u) => u.display_name === label
+                        ) || null;
+
                       return (
-                        <div
-                          key={rec.round_id}
-                          className="mx-auto max-w-2xl bg-gray-900/80 border border-gray-700 rounded-2xl p-6 flex flex-col items-center space-y-4"
-                        >
-                          <div className="w-full flex justify-between items-center mb-2">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                                <span className="material-symbols-outlined text-white text-sm">
-                                  swap_horiz
-                                </span>
+                        <div className="rounded-xl border border-slate-600 bg-slate-800/80 p-3 shadow-lg backdrop-blur-md">
+                          <div className="flex items-center gap-2 mb-2">
+                            {user?.icon_url ? (
+                              <img
+                                src={user.icon_url}
+                                alt={label}
+                                className="w-6 h-6 rounded-full"
+                              />
+                            ) : (
+                              <div className="w-6 h-6 grid place-items-center rounded-full bg-slate-700 text-xs font-bold">
+                                {label.charAt(0)}
                               </div>
-                              <span className="text-sm font-mono text-blue-300 font-semibold">
-                                {rec.round_id}
+                            )}
+                            <p className="font-bold text-white">{label}</p>
+                          </div>
+                          {payload.map((pld: any, i: number) => (
+                            <div
+                              key={i}
+                              style={{ color: pld.fill }}
+                              className="flex items-center justify-between gap-4 text-sm"
+                            >
+                              <span>{pld.name}:</span>
+                              <span className="font-semibold">
+                                {pld.value.toLocaleString()}
                               </span>
                             </div>
-                            <span className="text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-lg">
-                              {new Date(rec.created_at).toLocaleString(
-                                "ja-JP",
-                                {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                }
-                              )}
-                            </span>
-                          </div>
-
-                          {/* 送金フロー */}
-                          <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700 w-full">
-                            <div className="flex">
-                              {/* From */}
-                              <div className="flex-1 flex flex-col items-center">
-                                {userMap[sender.uid]?.icon_url ? (
-                                  <img
-                                    src={userMap[sender.uid].icon_url}
-                                    alt={userMap[sender.uid].display_name}
-                                    className="w-10 h-10 rounded-full object-cover mb-2"
-                                  />
-                                ) : (
-                                  <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center mb-2 text-white">
-                                    {userMap[sender.uid]?.display_name.charAt(
-                                      0
-                                    )}
-                                  </div>
-                                )}
-                                <span
-                                  className="
-          text-sm md:text-base font-medium text-green-300 
-          truncate whitespace-nowrap 
-          max-w-[5rem] sm:max-w-[6rem] lg:max-w-[8rem] 
-          text-center
-        "
-                                  title={userMap[sender.uid]?.display_name}
-                                >
-                                  {userMap[sender.uid]?.display_name ||
-                                    sender.uid}
-                                </span>
-                              </div>
-
-                              {/* → & Amount */}
-                              <div className="flex-1 flex flex-col items-center justify-center space-y-1">
-                                {/* 大きめの矢印アイコン */}
-                                <span className="material-symbols-outlined text-blue-300 text-2xl md:text-3xl">
-                                  arrow_forward
-                                </span>
-
-                                {/* 金額バッジ */}
-                                <div className="inline-flex items-center justify-center bg-yellow-600/20 border border-yellow-500 rounded-full px-4 py-2 min-w-[4rem] md:min-w-[5rem]">
-                                  <span className="text-yellow-300 font-extrabold text-base md:text-lg leading-none truncate">
-                                    {amount}
-                                    <span className="text-xs md:text-sm opacity-80 ml-1">
-                                      sato
-                                    </span>
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* To */}
-                              <div className="flex-1 flex flex-col items-center">
-                                {userMap[receiver.uid]?.icon_url ? (
-                                  <img
-                                    src={userMap[receiver.uid].icon_url}
-                                    alt={userMap[receiver.uid].display_name}
-                                    className="w-10 h-10 rounded-full object-cover mb-2"
-                                  />
-                                ) : (
-                                  <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center mb-2 text-white">
-                                    {userMap[receiver.uid]?.display_name.charAt(
-                                      0
-                                    )}
-                                  </div>
-                                )}
-                                <span
-                                  className=" text-sm md:text-base font-medium text-blue-300 truncate whitespace-nowrap max-w-[5rem] sm:max-w-[6rem] lg:max-w-[8rem] text-center"
-                                  title={userMap[receiver.uid]?.display_name}
-                                >
-                                  {userMap[receiver.uid]?.display_name ||
-                                    receiver.uid}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
+                          ))}
                         </div>
                       );
                     }
+                    return null;
+                  };
+
+                  const AvatarYTicks = (props: any) => {
+                    const { x, y, payload } = props;
+                    const userName = payload.value;
+                    const user = room.members.find(
+                      (m: any) => userMap[m.uid]?.display_name === userName
+                    );
+                    const userInfo = user ? userMap[user.uid] : null;
+
                     return (
-                      <div
-                        key={rec.round_id}
-                        className="mx-auto max-w-2xl bg-gray-900/80 border border-gray-700 rounded-2xl p-6"
-                      >
-                        {/* ヘッダー */}
-                        <div className="flex justify-between items-center mb-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-                              <span className="material-symbols-outlined text-white text-sm">
-                                leaderboard
-                              </span>
+                      <g transform={`translate(${x - 45},${y - 16})`}>
+                        <foreignObject width="40" height="40">
+                          {userInfo?.icon_url ? (
+                            <img
+                              src={userInfo.icon_url}
+                              alt={userName}
+                              className="w-8 h-8 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 grid place-items-center rounded-full bg-slate-700 text-sm font-bold text-white">
+                              {userName.charAt(0)}
                             </div>
-                            <span className="text-sm font-mono text-sky-400 font-semibold">
-                              {rec.round_id}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="bg-gray-800/60 px-2 py-1 rounded-lg flex items-center gap-1">
-                              <span className="material-symbols-outlined text-gray-400 text-xs">
-                                group
-                              </span>
-                              <span className="text-xs text-gray-400">
-                                {rec.points.length}
-                              </span>
-                            </div>
-                            <span className="text-xs text-gray-400 bg-gray-800/60 px-2 py-1 rounded-lg">
-                              {new Date(rec.created_at).toLocaleString(
-                                "ja-JP",
-                                {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                }
-                              )}
-                            </span>
-                          </div>
-                        </div>
+                          )}
+                        </foreignObject>
+                      </g>
+                    );
+                  };
 
-                        {/* 結果リスト */}
-                        <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
-                          <div className="grid gap-3">
-                            {rec.points
-                              .sort((a, b) => b.value - a.value)
-                              .map((p, idx) => (
-                                <div
-                                  key={p.uid}
-                                  className={`flex justify-between items-center px-3 py-2 rounded-lg ${
-                                    idx === 0
-                                      ? "bg-yellow-500/15 border-yellow-400/30 border"
-                                      : idx === 1
-                                        ? "bg-gray-400/10 border-gray-400/30 border"
-                                        : idx === 2
-                                          ? "bg-amber-600/10 border-amber-600/30 border"
-                                          : "bg-gray-700/30 border-gray-600/20 border"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    {/* アイコン */}
-                                    {idx === 0 && (
-                                      <span className="material-symbols-outlined text-yellow-400">
-                                        trophy
-                                      </span>
-                                    )}
-                                    {idx === 1 && (
-                                      <span className="material-symbols-outlined text-gray-400">
-                                        military_tech
-                                      </span>
-                                    )}
-                                    {idx === 2 && (
-                                      <span className="material-symbols-outlined text-amber-200">
-                                        workspace_premium
-                                      </span>
-                                    )}
-
-                                    {/* アバター */}
-                                    {userMap[p.uid]?.icon_url ? (
-                                      <img
-                                        src={userMap[p.uid].icon_url}
-                                        alt={userMap[p.uid].display_name}
-                                        className="w-6 h-6 rounded-full"
-                                      />
-                                    ) : (
-                                      <div className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center text-xs text-white">
-                                        {userMap[p.uid]?.display_name.charAt(0)}
-                                      </div>
-                                    )}
-                                    {/* 名前 */}
-                                    <span className="truncate max-w-[8rem] font-medium">
-                                      {userMap[p.uid]?.display_name || p.uid}
-                                    </span>
-                                  </div>
-
-                                  {/* スコア */}
-                                  <div className="flex items-center gap-1">
-                                    <span
-                                      className={`font-bold tabular-nums ${
-                                        p.value > 0
-                                          ? "text-green-400"
-                                          : p.value < 0
-                                            ? "text-red-400"
-                                            : "text-gray-400"
-                                      }`}
-                                    >
-                                      {p.value > 0 ? "+" : ""}
-                                      {p.value}
-                                    </span>
-                                    <span className="text-xs text-gray-500">
-                                      pt
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                          </div>
+                  if (stats.totalPonRounds === 0) {
+                    return (
+                      <div className="flex h-full w-full items-center justify-center">
+                        <div className="text-center">
+                          <span className="material-symbols-outlined text-6xl text-gray-600">
+                            sentiment_dissatisfied
+                          </span>
+                          <p className="mt-4 text-xl font-semibold text-gray-400">
+                            No Data to Display
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            Play a PON round to see statistics.
+                          </p>
                         </div>
                       </div>
                     );
-                  })
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 grid-rows-[auto] gap-4 sm:gap-6 lg:grid-cols-4 xl:grid-cols-5 animate-slide-in-up">
+                      {/* --- Hero Stat: Win Streak --- */}
+                      {stats.maxWinStreak.uid && stats.maxWinStreak.user && (
+                        <div className="group relative overflow-hidden rounded-xl border border-amber-400/30 bg-gradient-to-br from-gray-900 via-gray-900 to-amber-900/50 p-5 shadow-2xl shadow-amber-900/50 transition-all duration-300 lg:col-span-4 xl:col-span-3">
+                          <div className="flex items-center gap-5">
+                            <span className="material-symbols-outlined text-6xl text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)] transition-transform duration-300 group-hover:scale-110">
+                              local_fire_department
+                            </span>
+                            <div className="w-full">
+                              <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-300">
+                                Longest Win Streak
+                              </h3>
+                              <div className="mt-2 flex flex-wrap items-center gap-x-4">
+                                {stats.maxWinStreak.user.icon_url ? (
+                                  <img
+                                    src={stats.maxWinStreak.user.icon_url}
+                                    alt={stats.maxWinStreak.user.display_name}
+                                    className="h-12 w-12 rounded-full border-2 border-amber-400 object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 font-bold text-white">
+                                    {stats.maxWinStreak.user.display_name.charAt(
+                                      0
+                                    )}
+                                  </div>
+                                )}
+                                <p className="truncate text-2xl font-bold text-white">
+                                  {stats.maxWinStreak.user.display_name}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex-shrink-0 text-right">
+                              <p className="text-6xl font-black text-amber-400">
+                                {stats.maxWinStreak.streak}
+                              </p>
+                              <p className="font-bold text-white">WINS</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* --- Summary Cards --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-2">
+                        <h3 className="flex items-center gap-2 text-sm font-medium text-gray-400">
+                          <span className="material-symbols-outlined text-base">
+                            casino
+                          </span>{" "}
+                          Total PON Rounds
+                        </h3>
+                        <p className="font-mono text-5xl font-extrabold text-white mt-2">
+                          {stats.totalPonRounds}
+                        </p>
+                      </div>
+
+                      {/* --- Wins / Losses Chart --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-3 min-h-[350px]">
+                        <h3 className="text-base font-semibold text-white">
+                          Wins / Losses
+                        </h3>
+                        <ResponsiveContainer width="100%" height="90%">
+                          <BarChart
+                            data={stats.winLossData}
+                            layout="vertical"
+                            margin={{ top: 20, right: 20, left: 30, bottom: 5 }}
+                            barCategoryGap="35%"
+                          >
+                            <CartesianGrid
+                              stroke="#4b5563"
+                              strokeDasharray="3 3"
+                              horizontal={false}
+                            />
+                            <XAxis
+                              type="number"
+                              stroke="#9ca3af"
+                              tick={{ fill: "#9ca3af", fontSize: 12 }}
+                              allowDecimals={false}
+                            />
+                            {/* ★修正点1: Y軸にAvatarYTicksを適用 */}
+                            <YAxis
+                              type="category"
+                              dataKey="name"
+                              width={60}
+                              tickLine={false}
+                              axisLine={false}
+                              tick={<AvatarYTicks />}
+                            />
+                            <Tooltip
+                              content={<CustomTooltip />}
+                              cursor={{ fill: "rgba(129, 140, 248, 0.1)" }}
+                            />
+                            <Bar
+                              dataKey="wins"
+                              fill="#3b82f6"
+                              name="Wins"
+                              radius={[0, 8, 8, 0]}
+                            />
+                            <Bar
+                              dataKey="losses"
+                              fill="#ef4444"
+                              name="Losses"
+                              radius={[0, 8, 8, 0]}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* --- Total Score Chart --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 min-h-[350px]">
+                        <h3 className="text-base font-semibold text-white">
+                          Total Score Ranking
+                        </h3>
+                        <ResponsiveContainer width="100%" height="90%">
+                          <BarChart
+                            data={stats.totalScoresData}
+                            layout="vertical"
+                            margin={{ top: 20, right: 30, left: 30, bottom: 5 }}
+                            barCategoryGap="35%"
+                          >
+                            <CartesianGrid
+                              stroke="#4b5563"
+                              strokeDasharray="3 3"
+                              horizontal={false}
+                            />
+                            <XAxis
+                              type="number"
+                              stroke="#9ca3af"
+                              tick={{ fill: "#9ca3af", fontSize: 12 }}
+                            />
+                            {/* ★修正点1: Y軸にAvatarYTicksを適用 */}
+                            <YAxis
+                              type="category"
+                              dataKey="name"
+                              width={60}
+                              tickLine={false}
+                              axisLine={false}
+                              tick={<AvatarYTicks />}
+                            />
+                            <Tooltip
+                              content={<CustomTooltip />}
+                              cursor={{ fill: "rgba(129, 140, 248, 0.1)" }}
+                            />
+                            <Bar
+                              dataKey="totalScore"
+                              name="Score"
+                              radius={[0, 8, 8, 0]}
+                            >
+                              {stats.totalScoresData.map((entry, index) => (
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={
+                                    entry.totalScore >= 0
+                                      ? "#22c55e"
+                                      : "#f87171"
+                                  }
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* --- Participation Chart --- */}
+                      {/* --- Participation Chart --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-3 min-h-[300px]">
+                        <h3 className="text-base font-semibold text-white">
+                          Participation Ranking
+                        </h3>
+                        <ResponsiveContainer width="100%" height="90%">
+                          {/* ★修正点: X軸にアバターを表示するため、bottomマージンを確保 */}
+                          <BarChart
+                            data={stats.participationData}
+                            margin={{ top: 20, right: 30, left: 0, bottom: 20 }}
+                          >
+                            <CartesianGrid
+                              stroke="#4b5563"
+                              strokeDasharray="3 3"
+                              vertical={false}
+                            />
+
+                            {/* ★修正点: X軸にAvatarXTicksを適用 */}
+                            <XAxis
+                              dataKey="name"
+                              height={40}
+                              tickLine={false}
+                              axisLine={false}
+                              tick={(props) => {
+                                const { x, y, payload } = props;
+                                const userName = payload.value;
+                                const user = room.members.find(
+                                  (m: any) =>
+                                    userMap[m.uid]?.display_name === userName
+                                );
+                                const userInfo = user
+                                  ? userMap[user.uid]
+                                  : null;
+
+                                return (
+                                  <g
+                                    transform={`translate(${x - 16},${y + 10})`}
+                                  >
+                                    <foreignObject width="32" height="32">
+                                      {userInfo?.icon_url ? (
+                                        <img
+                                          src={userInfo.icon_url}
+                                          alt={userName}
+                                          className="w-8 h-8 rounded-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-8 h-8 grid place-items-center rounded-full bg-slate-700 text-sm font-bold text-white">
+                                          {userName.charAt(0)}
+                                        </div>
+                                      )}
+                                    </foreignObject>
+                                  </g>
+                                );
+                              }}
+                            />
+                            <YAxis
+                              stroke="#9ca3af"
+                              tick={{ fill: "#9ca3af", fontSize: 12 }}
+                              allowDecimals={false}
+                            />
+                            <Tooltip
+                              content={<CustomTooltip />}
+                              cursor={{ fill: "rgba(129, 140, 248, 0.1)" }}
+                            />
+                            <Bar
+                              dataKey="appearances"
+                              name="Rounds Played"
+                              fill="#a855f7"
+                              radius={[8, 8, 0, 0]}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* --- Activity Section --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 min-h-[300px] flex flex-col justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-white">
+                            Weekly Activity
+                          </h3>
+                          {/* ★修正点2: ヒートマップに数値を表示 */}
+                          <div className="mt-4 grid grid-cols-7 gap-1.5 sm:gap-2">
+                            {["S", "M", "T", "W", "T", "F", "S"].map(
+                              (day, index) => {
+                                const count = stats.heatmapData[index];
+                                const maxCount = Math.max(
+                                  ...stats.heatmapData,
+                                  1
+                                );
+                                const opacity =
+                                  count > 0
+                                    ? 0.2 + (count / maxCount) * 0.8
+                                    : 0.1;
+                                return (
+                                  <div
+                                    key={index}
+                                    className="flex flex-col items-center gap-2"
+                                    title={`${count} rounds on ${day}`}
+                                  >
+                                    <div
+                                      className="relative grid h-20 w-full place-items-center rounded-md bg-indigo-500 transition-all duration-300"
+                                      style={{ opacity }}
+                                    >
+                                      {count > 0 && (
+                                        <span className="font-bold text-white text-lg drop-shadow-md">
+                                          {count}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-xs text-gray-500">
+                                      {day}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-6 space-y-3">
+                          <h3 className="text-base font-semibold text-white">
+                            Quick Stats (Last 5)
+                          </h3>
+                          <div className="flex items-center justify-between rounded-lg bg-gray-900/60 p-3">
+                            <p className="text-sm text-gray-300">Avg Players</p>
+                            <p className="font-mono text-lg font-bold text-white">
+                              {stats.recent5Stats.avgParticipants}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg bg-gray-900/60 p-3">
+                            <p className="text-sm text-gray-300">
+                              Avg Total PON
+                            </p>
+                            <p className="font-mono text-lg font-bold text-white">
+                              {stats.recent5Stats.avgTotalPon}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              {historyModalTab === "Log" && (
+                <>
+                  {/* Tab Navigation */}
+                  <div className="sticky top-0 z-10 bg-gray-800/4 max-w-3xl mx-auto   py-3 backdrop-blur-md sm:px-6 sm:py-4">
+                    <div className="flex space-x-2 sm:space-x-4">
+                      {["PON", "SATO"].map((type) => (
+                        <button
+                          key={type}
+                          onClick={() => setHistoryType(type as "PON" | "SATO")}
+                          className={`relative rounded-md px-3 py-2 text-sm font-bold transition-all duration-300 sm:px-4 ${
+                            historyType === type
+                              ? "bg-slate-700 text-white"
+                              : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                          }`}
+                        >
+                          {type}
+                          {historyType === type && (
+                            <span className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-fuchsia-500 rounded-full" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Log Content */}
+                  <div className="space-y-4 px-1 pt-4 sm:space-y-6 sm:px-2">
+                    {filteredHistory.length === 0 ? (
+                      <div className="flex flex-col items-center py-20 text-center">
+                        <div className="relative grid h-24 w-24 place-items-center">
+                          <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500/20 to-fuchsia-500/20 blur-2xl"></div>
+                          <span className="material-symbols-outlined text-6xl text-slate-500">
+                            receipt_long
+                          </span>
+                        </div>
+                        <p className="mt-4 text-lg font-semibold text-slate-300">
+                          No History Available
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          Game and transaction records will appear here.
+                        </p>
+                      </div>
+                    ) : (
+                      [...filteredHistory]
+                        .sort(
+                          (a, b) =>
+                            new Date(b.created_at).getTime() -
+                            new Date(a.created_at).getTime()
+                        )
+                        .map((rec, animIdx) => {
+                          // SATO Log Card
+                          if (historyType === "SATO") {
+                            const sender = rec.points.find(
+                              (p: any) => p.value > 0
+                            )!;
+                            const receiver = rec.points.find(
+                              (p: any) => p.value < 0
+                            )!;
+                            const amount = sender ? Math.abs(sender.value) : 0;
+                            if (!sender || !receiver) return null;
+
+                            return (
+                              <div
+                                key={rec.round_id}
+                                className="animate-slide-in-up"
+                                style={{ animationDelay: `${animIdx * 50}ms` }}
+                              >
+                                <div className="group mx-auto max-w-4xl rounded-2xl border border-slate-700/50 bg-gradient-to-br from-slate-800/80 to-slate-900/50 p-3 shadow-lg transition-all duration-300 hover:border-fuchsia-500/50 hover:shadow-2xl hover:shadow-fuchsia-500/10 sm:p-4">
+                                  {/* Card Header */}
+                                  <div className="mb-3 flex items-center justify-between px-1">
+                                    <div className="flex items-center gap-2">
+                                      <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-fuchsia-600/30 to-purple-600/30 border border-fuchsia-500/30">
+                                        <span className="material-symbols-outlined text-fuchsia-300 text-base">
+                                          payments
+                                        </span>
+                                      </div>
+                                      <span className="font-mono text-xs font-bold text-fuchsia-300 sm:text-sm">
+                                        {rec.round_id}
+                                      </span>
+                                    </div>
+                                    {/* ★修正点1: 秒単位まで表示 */}
+                                    <span className="text-xs text-slate-400">
+                                      {new Date(rec.created_at).toLocaleString(
+                                        "ja-JP",
+                                        {
+                                          year: "numeric",
+                                          month: "2-digit",
+                                          day: "2-digit",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                          second: "2-digit",
+                                          hour12: false,
+                                        }
+                                      )}
+                                    </span>
+                                  </div>
+
+                                  {/* SATO Body */}
+                                  <div className="flex w-full items-center gap-1 rounded-xl bg-slate-900/60 p-2 sm:gap-3 sm:p-3">
+                                    {/* Sender */}
+                                    <div className="flex flex-1 items-center gap-2 min-w-0">
+                                      {/* ★修正点2: flex-shrink-0 を追加 */}
+                                      {userMap[sender.uid]?.icon_url ? (
+                                        <img
+                                          src={userMap[sender.uid].icon_url}
+                                          alt=""
+                                          className="h-10 w-10 flex-shrink-0 rounded-full object-cover border-2 border-slate-600 sm:h-12 sm:w-12"
+                                        />
+                                      ) : (
+                                        <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-slate-700 font-bold text-white sm:h-12 sm:w-12 sm:text-lg">
+                                          {userMap[
+                                            sender.uid
+                                          ]?.display_name.charAt(0)}
+                                        </div>
+                                      )}
+                                      <p className="truncate text-sm font-medium text-slate-200">
+                                        {userMap[sender.uid]?.display_name}
+                                      </p>
+                                    </div>
+
+                                    {/* Arrow & Amount */}
+                                    <div className="flex flex-shrink-0 items-center gap-1 rounded-full bg-slate-800/70 p-1 sm:gap-2">
+                                      <span className="material-symbols-outlined text-lg text-fuchsia-400 sm:text-xl">
+                                        arrow_forward
+                                      </span>
+                                      <div className="rounded-full bg-amber-400/10 px-2 py-1 border border-amber-400/20 sm:px-3">
+                                        <span className="text-sm font-bold text-amber-300">
+                                          {amount.toLocaleString()}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Receiver */}
+                                    <div className="flex flex-1 items-center justify-end gap-2 min-w-0 text-right">
+                                      <p className="truncate text-sm font-medium text-slate-200">
+                                        {userMap[receiver.uid]?.display_name}
+                                      </p>
+                                      {/* ★修正点2: flex-shrink-0 を追加 */}
+                                      {userMap[receiver.uid]?.icon_url ? (
+                                        <img
+                                          src={userMap[receiver.uid].icon_url}
+                                          alt=""
+                                          className="h-10 w-10 flex-shrink-0 rounded-full object-cover border-2 border-slate-600 sm:h-12 sm:w-12"
+                                        />
+                                      ) : (
+                                        <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-slate-700 font-bold text-white sm:h-12 sm:w-12 sm:text-lg">
+                                          {userMap[
+                                            receiver.uid
+                                          ]?.display_name.charAt(0)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // PON Log Card
+                          return (
+                            <div
+                              key={rec.round_id}
+                              className="animate-slide-in-up"
+                              style={{ animationDelay: `${animIdx * 50}ms` }}
+                            >
+                              <div className="mx-auto max-w-3xl rounded-2xl border border-slate-700/50 bg-slate-800/50 p-4 shadow-lg transition-all duration-300 hover:border-indigo-500/50 hover:shadow-indigo-500/10 sm:p-5">
+                                {/* Card Header */}
+                                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-indigo-600/30 to-blue-600/30 border border-indigo-500/30">
+                                      <span className="material-symbols-outlined text-indigo-300 text-base">
+                                        leaderboard
+                                      </span>
+                                    </div>
+                                    <span className="font-mono text-xs font-bold text-indigo-300 sm:text-sm">
+                                      {rec.round_id}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1 rounded-full bg-slate-700/80 px-2 py-1 text-xs text-slate-300">
+                                      <span className="material-symbols-outlined text-sm">
+                                        groups
+                                      </span>
+                                      <span>{rec.points.length}</span>
+                                    </div>
+                                    <span className="text-xs text-slate-400">
+                                      {new Date(rec.created_at).toLocaleString(
+                                        "ja-JP"
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+                                {/* PON Body */}
+                                <div className="space-y-2 rounded-xl bg-slate-900/50 p-2 sm:p-4">
+                                  {rec.points
+                                    .sort((a: any, b: any) => b.value - a.value)
+                                    .map((p: any, idx: number) => (
+                                      <div
+                                        key={p.uid}
+                                        className={`flex items-center justify-between rounded-lg p-2 transition-all duration-300 sm:p-3 ${
+                                          idx === 0
+                                            ? "bg-amber-400/10"
+                                            : "bg-slate-800/50 hover:bg-slate-700/50"
+                                        }`}
+                                      >
+                                        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                                          <div className="flex-shrink-0 text-center sm:w-6">
+                                            {idx < 3 ? (
+                                              <span
+                                                className={`material-symbols-outlined text-lg ${idx === 0 ? "text-amber-400" : idx === 1 ? "text-slate-300" : "text-orange-400"}`}
+                                              >
+                                                {idx === 0
+                                                  ? "emoji_events"
+                                                  : idx === 1
+                                                    ? "military_tech"
+                                                    : "workspace_premium"}
+                                              </span>
+                                            ) : (
+                                              <span className="text-sm font-bold text-slate-500">
+                                                {idx + 1}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {userMap[p.uid]?.icon_url ? (
+                                            <img
+                                              src={userMap[p.uid].icon_url}
+                                              alt=""
+                                              className="h-8 w-8 rounded-full object-cover sm:h-9 sm:w-9"
+                                            />
+                                          ) : (
+                                            <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-full bg-slate-700 text-sm font-bold text-white sm:h-9 sm:w-9">
+                                              {userMap[
+                                                p.uid
+                                              ]?.display_name.charAt(0)}
+                                            </div>
+                                          )}
+                                          <span className="truncate text-sm font-medium text-slate-200">
+                                            {userMap[p.uid]?.display_name}
+                                          </span>
+                                        </div>
+                                        <div
+                                          className={`flex-shrink-0 rounded-md px-2 py-1 text-sm font-bold tabular-nums sm:px-3 ${
+                                            p.value > 0
+                                              ? "bg-emerald-500/10 text-emerald-400"
+                                              : p.value < 0
+                                                ? "bg-rose-500/10 text-rose-400"
+                                                : "bg-slate-600/20 text-slate-400"
+                                          }`}
+                                        >
+                                          {p.value > 0 ? "+" : ""}
+                                          {p.value.toLocaleString()}
+                                          <span className="ml-1 text-xs opacity-70">
+                                            pt
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </>
               )}
-            </div>
+            </main>
           </div>
         </div>
       )}
+
       {/* 精算モーダル */}
       {showSettleModal && (
         <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-purple-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
@@ -2643,84 +4061,155 @@ export default function RoomPage() {
       )}
 
       {showSettingsModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
-          <div className="w-full h-full sm:w-full sm:max-w-lg sm:h-auto bg-gray-800/90 rounded-none sm:rounded-2xl shadow-2xl animate-scale-up overflow-hidden">
+        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 animate-fade-in p-0 sm:p-4">
+          <div className="w-full h-full sm:w-full sm:max-w-lg sm:h-auto bg-gray-800/95 rounded-none sm:rounded-2xl shadow-2xl animate-scale-up flex flex-col border border-gray-700/50">
             {/* Header */}
-            <div className="flex justify-between items-center bg-gray-900/80 px-6 py-4 border-b border-gray-700">
-              <h2 className="text-lg font-semibold text-white">
+            <div className="flex justify-between items-center bg-gray-900/80 px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-700 flex-shrink-0">
+              <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
+                <span className="material-symbols-outlined text-blue-400 text-xl">
+                  settings
+                </span>
                 Room Settings
               </h2>
               <button
                 onClick={() => setShowSettingsModal(false)}
-                className="p-2 rounded hover:bg-gray-700/40"
+                className="p-2 rounded-full hover:bg-gray-700/40 transition-colors"
               >
-                <span className="material-symbols-outlined text-white">
+                <span className="material-symbols-outlined text-gray-300">
                   close
                 </span>
               </button>
             </div>
-            {/* Body */}
-            <div className="px-6 py-5 space-y-5">
+
+            {/* Body: overflow-y-autoでコンテンツが溢れた場合のみスクロール */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 sm:space-y-6 scrollbar-hide">
+              {/* Room Information Section */}
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Name</label>
-                {room.created_by === me.uid ? (
-                  <input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    maxLength={20}
-                    className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
-                  />
-                ) : (
-                  <p className="text-white">{room.name}</p>
-                )}
+                <h3 className="text-xs sm:text-sm font-semibold text-gray-400 mb-2 sm:mb-3 border-b border-gray-700 pb-2">
+                  Information
+                </h3>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 text-sm">
+                  <div className="flex items-start gap-3">
+                    <span className="material-symbols-outlined text-gray-500 text-lg sm:text-xl mt-0.5">
+                      tag
+                    </span>
+                    <div>
+                      <p className="font-semibold text-white leading-tight">
+                        {room.room_id}
+                      </p>
+                      <p className="text-xs sm:text-sm text-gray-400">
+                        Room ID
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="material-symbols-outlined text-gray-500 text-lg sm:text-xl mt-0.5">
+                      shield_person
+                    </span>
+                    <div>
+                      <p className="font-semibold text-white leading-tight">
+                        {userMap[room.created_by]?.display_name || "Unknown"}
+                      </p>
+                      <p className="text-xs sm:text-sm text-gray-400">Owner</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="material-symbols-outlined text-gray-500 text-lg sm:text-xl mt-0.5">
+                      calendar_month
+                    </span>
+                    <div>
+                      <p className="font-semibold text-white leading-tight">
+                        {new Date(room.created_at).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs sm:text-sm text-gray-400">
+                        Created On
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="material-symbols-outlined text-gray-500 text-lg sm:text-xl mt-0.5">
+                      group
+                    </span>
+                    <div>
+                      <p className="font-semibold text-white leading-tight">
+                        {room.members.length} Members
+                      </p>
+                      <p className="text-xs sm:text-sm text-gray-400">
+                        Participants
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              {/* Edit Section (Owner only) */}
+              {room.created_by === me.uid && (
+                <div>
+                  <h3 className="text-xs sm:text-sm font-semibold text-gray-400 mb-2 sm:mb-3 border-b border-gray-700 pb-2">
+                    Edit Details
+                  </h3>
+                  <div className="space-y-3 sm:space-y-4">
+                    <div>
+                      <label className="block text-xs sm:text-sm text-gray-400 mb-1">
+                        Name
+                      </label>
+                      <input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        maxLength={20}
+                        className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-3 py-2 sm:px-4 sm:py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs sm:text-sm text-gray-400 mb-1">
+                        Description
+                      </label>
+                      <textarea
+                        value={editDesc}
+                        onChange={(e) => setEditDesc(e.target.value)}
+                        maxLength={100}
+                        rows={3}
+                        className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-3 py-2 sm:px-4 sm:py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 transition resize-none"
+                      />
+                    </div>
+                    <button
+                      onClick={handleUpdateRoom}
+                      disabled={updating}
+                      className={`w-full py-2.5 rounded-lg text-white font-semibold transition-colors text-sm sm:text-base ${
+                        updating
+                          ? "bg-indigo-600/50 cursor-not-allowed"
+                          : "bg-indigo-600 hover:bg-indigo-500"
+                      }`}
+                    >
+                      {updating ? "Updating..." : "Save Changes"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Danger Zone */}
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  Description
-                </label>
-                {room.created_by === me.uid ? (
-                  <textarea
-                    value={editDesc}
-                    onChange={(e) => setEditDesc(e.target.value)}
-                    maxLength={100}
-                    rows={3}
-                    className="w-full bg-gray-900/60 border border-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 transition"
-                  />
-                ) : (
-                  <p className="text-gray-200">{room.description || "None"}</p>
-                )}
-              </div>
-              {/* Controls */}
-              <div className="flex flex-col space-y-3">
-                {room.created_by === me.uid && (
-                  <button
-                    onClick={handleUpdateRoom}
-                    disabled={updating}
-                    className={`w-full py-2 rounded-full text-white font-medium transition ${
-                      updating
-                        ? "bg-indigo-600/50 cursor-not-allowed"
-                        : "bg-indigo-500 hover:bg-indigo-600"
-                    }`}
-                  >
-                    {updating ? "Updating..." : "Update"}
-                  </button>
-                )}
+                <h3 className="text-xs sm:text-sm font-semibold text-red-400 mb-2 sm:mb-3 border-b border-red-500/30 pb-2">
+                  Danger Zone
+                </h3>
                 <button
                   onClick={
                     room.created_by === me.uid
                       ? handleDeleteRoom
                       : handleLeaveRoom
                   }
-                  className="w-full py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-medium transition"
+                  className="w-full py-2.5 rounded-lg bg-red-600/20 hover:bg-red-600/40 text-red-300 font-medium transition-colors border border-red-500/30 text-sm sm:text-base"
                 >
-                  {room.created_by === me.uid ? "Delete Room" : "Leave Room"}
+                  {room.created_by === me.uid
+                    ? "Delete This Room"
+                    : "Leave Room"}
                 </button>
+                {errorMessage && (
+                  <p className="text-red-400 text-xs sm:text-sm text-center mt-2">
+                    {errorMessage}
+                  </p>
+                )}
               </div>
-              {errorMessage && (
-                <p className="text-red-400 text-sm text-center">
-                  {errorMessage}
-                </p>
-              )}
             </div>
           </div>
         </div>
@@ -2839,6 +4328,98 @@ export default function RoomPage() {
                   sato from your balance to {pendingReq.from_uid}
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {joinQueue.length > 0 && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 animate-fade-in p-4">
+          <div className="w-full max-w-lg bg-gradient-to-br from-gray-900 via-gray-800 to-gray-700 rounded-3xl p-6 border border-gray-700/50 shadow-2xl transform animate-scale-up">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="flex items-center gap-3 text-2xl font-bold text-amber-400">
+                <span className="material-symbols-outlined text-3xl">
+                  notification_important
+                </span>
+                Join Requests
+              </h3>
+            </div>
+
+            {/* List */}
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+              {" "}
+              {/* pr-2でスクロールバーのスペースを確保 */}
+              {joinQueue.map((uid) => {
+                const user = userMap[uid] || {
+                  display_name: uid,
+                  icon_url: "",
+                };
+                const online = ctxOnlineUsers[roomId]?.has(uid);
+                return (
+                  <div
+                    key={uid}
+                    className="flex items-center justify-between bg-gray-800/60 border border-gray-700/50 rounded-xl p-4 transition-all duration-200 hover:bg-gray-700/70 shadow-md"
+                  >
+                    {/* User Info */}
+                    <div className="flex items-center gap-4 min-w-0 flex-grow">
+                      {" "}
+                      {/* flex-growを追加してテキストがスペースを埋めるように */}
+                      <div className="relative flex-shrink-0">
+                        {user.icon_url ? (
+                          <img
+                            src={user.icon_url}
+                            alt={user.display_name}
+                            className="w-12 h-12 rounded-full object-cover shadow-lg border border-gray-600"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center text-lg font-bold text-white shadow-lg border border-gray-600">
+                            {user.display_name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <span
+                          className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-gray-900 ${
+                            // border-gray-900に調整
+                            online ? "bg-green-400" : "bg-gray-500"
+                          }`}
+                          title={online ? "Online" : "Offline"}
+                        />
+                      </div>
+                      <span className="font-semibold text-xl text-white truncate leading-tight">
+                        {" "}
+                        {/* text-xlに上げて、truncateを確保 */}
+                        {user.display_name}
+                      </span>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-3 flex-shrink-0 ml-4">
+                      {" "}
+                      {/* ml-4で少しマージンを追加 */}
+                      <button
+                        onClick={() => handleDecision("reject", uid)}
+                        className="flex items-center justify-center px-4 py-2 bg-rose-700/40 hover:bg-rose-700/60 text-rose-300 rounded-lg text-sm font-medium transition-colors duration-200 border border-rose-600/50 shadow-sm hover:shadow-md"
+                        title="Reject Request"
+                      >
+                        <span className="material-symbols-outlined text-base mr-1">
+                          cancel
+                        </span>
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => handleDecision("approve", uid)}
+                        className="flex items-center justify-center px-4 py-2 bg-teal-700/40 hover:bg-teal-700/60 text-teal-300 rounded-lg text-sm font-medium transition-colors duration-200 border border-teal-600/50 shadow-sm hover:shadow-md"
+                        title="Accept Request"
+                      >
+                        <span className="material-symbols-outlined text-base mr-1">
+                          check_circle
+                        </span>
+                        Accept
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

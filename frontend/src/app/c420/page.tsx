@@ -606,22 +606,22 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
-{/* ─── 検索バー ─── */}
-<div className="w-full pb-0">
-  {/* 入力欄をカード風に囲む */}
-  <div className="bg-gray-800/40 p-2 flex items-center">
-    <span className="material-symbols-outlined text-gray-400 mr-2">
-      search
-    </span>
-    <input
-      type="text"
-      value={searchQuery}
-      onChange={(e) => setSearchQuery(e.target.value)}
-      placeholder="Search by name or ID"
-      className="flex-1 bg-transparent text-gray-100 placeholder-gray-500 focus:outline-none"
-    />
-  </div>
-</div>
+              {/* ─── 検索バー ─── */}
+              <div className="w-full pb-0">
+                {/* 入力欄をカード風に囲む */}
+                <div className="bg-gray-800/40 p-2 flex items-center">
+                  <span className="material-symbols-outlined text-gray-400 mr-2">
+                    search
+                  </span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by name or ID"
+                    className="flex-1 bg-transparent text-gray-100 placeholder-gray-500 focus:outline-none"
+                  />
+                </div>
+              </div>
 
               {/* content */}
               <div className="p-6 overflow-y-auto h-full flex-1 scrollbar-hide">

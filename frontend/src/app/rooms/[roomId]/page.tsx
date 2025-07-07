@@ -104,130 +104,173 @@ export default function RoomPage() {
 
   // 既存のhistoryStatsのuseMemoをこのコードで置き換えてください
 
-// 既存の historyStats の useMemo をこちらのコードで置き換えてください
-const dashboardStats = useMemo(() => {
-  // データが不十分な場合は、早期にデフォルト値を返す
-  if (!pointHistory || pointHistory.length === 0 || !room?.members || Object.keys(userMap).length === 0) {
-    return {
-      winLossData: [],
-      totalScoresData: [],
-      totalPonRounds: 0,
-      avgParticipantsLastMonth: "0.0",
-      participationData: [],
-      heatmapData: Array(7).fill(0),
-      maxWinStreak: { uid: null, streak: 0, user: null },
-      recent5Stats: { avgParticipants: "0.0", avgTotalPon: "0.0" },
-    };
-  }
-
-  // 1. PON履歴のみを抽出し、時系列にソート
-  const ponRounds = pointHistory
-    .filter((r) => r.round_id.startsWith("PON"))
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-  if (ponRounds.length === 0) {
-    return {
-      winLossData: [], totalScoresData: [], totalPonRounds: 0, avgParticipantsLastMonth: "0.0",
-      participationData: [], heatmapData: Array(7).fill(0), maxWinStreak: { uid: null, streak: 0, user: null },
-      recent5Stats: { avgParticipants: "0.0", avgTotalPon: "0.0" },
-    };
-  }
-
-  // 2. ユーザーごとの基本統計を計算 (勝利数/敗北数, 総得点, 出場数)
-  const userStats = room.members.map((member: { uid: string }) => {
-    const stats = {
-      uid: member.uid,
-      name: userMap[member.uid]?.display_name || 'Unknown',
-      wins: 0,
-      losses: 0,
-      totalScore: 0,
-      appearances: 0,
-    };
-
-    ponRounds.forEach(round => {
-      const participant = round.points.find((p: any) => p.uid === member.uid);
-      if (participant) {
-        stats.appearances++;
-        stats.totalScore += participant.value;
-        if (participant.value > 0) stats.wins++;
-        else if (participant.value < 0) stats.losses++;
-      }
-    });
-    return stats;
-  });
-
-  // グラフ用にデータを整形
-  const winLossData = userStats.map(({ name, wins, losses }) => ({ name, wins, losses }));
-  const totalScoresData = [...userStats].sort((a, b) => b.totalScore - a.totalScore);
-  const participationData = [...userStats].sort((a, b) => b.appearances - a.appearances);
-
-  // 3. 総試合回数 (PON)
-  const totalPonRounds = ponRounds.length;
-
-  // 4. 直近1ヶ月の平均参加人数
-  const oneMonthAgo = new Date();
-  oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
-  const recentRoundsLastMonth = ponRounds.filter(r => new Date(r.created_at) > oneMonthAgo);
-  const avgParticipantsLastMonth = recentRoundsLastMonth.length > 0
-    ? (recentRoundsLastMonth.reduce((sum, round) => sum + round.points.length, 0) / recentRoundsLastMonth.length).toFixed(1)
-    : "0.0";
-
-  // 6. 曜日別の試合数ヒートマップ
-  const heatmapData = Array(7).fill(0);
-  ponRounds.forEach(r => {
-    const day = new Date(r.created_at).getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-    heatmapData[day]++;
-  });
-
-  // 7. 連勝記録保持者
-  let maxWinStreak = { uid: null as string | null, streak: 0, user: null as any };
-  room.members.forEach((member: { uid: string }) => {
-    let currentStreak = 0;
-    let memberMaxStreak = 0;
-    ponRounds.forEach(round => {
-      const participant = round.points.find((p: any) => p.uid === member.uid);
-      if (participant) {
-        if (participant.value > 0) {
-          currentStreak++;
-        } else {
-          memberMaxStreak = Math.max(memberMaxStreak, currentStreak);
-          currentStreak = 0;
-        }
-      }
-    });
-    memberMaxStreak = Math.max(memberMaxStreak, currentStreak);
-
-    if (memberMaxStreak > maxWinStreak.streak) {
-      maxWinStreak = { uid: member.uid, streak: memberMaxStreak, user: userMap[member.uid] };
+  // 既存の historyStats の useMemo をこちらのコードで置き換えてください
+  const dashboardStats = useMemo(() => {
+    // データが不十分な場合は、早期にデフォルト値を返す
+    if (
+      !pointHistory ||
+      pointHistory.length === 0 ||
+      !room?.members ||
+      Object.keys(userMap).length === 0
+    ) {
+      return {
+        winLossData: [],
+        totalScoresData: [],
+        totalPonRounds: 0,
+        avgParticipantsLastMonth: "0.0",
+        participationData: [],
+        heatmapData: Array(7).fill(0),
+        maxWinStreak: { uid: null, streak: 0, user: null },
+        recent5Stats: { avgParticipants: "0.0", avgTotalPon: "0.0" },
+      };
     }
-  });
 
-  // 8. 直近5試合の統計
-  const last5PonRounds = [...ponRounds].reverse().slice(0, 5);
-  let avgParticipants = "0.0";
-  let avgTotalPon = "0.0";
+    // 1. PON履歴のみを抽出し、時系列にソート
+    const ponRounds = pointHistory
+      .filter((r) => r.round_id.startsWith("PON"))
+      .sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
 
-  if (last5PonRounds.length > 0) {
-    const totalParticipants = last5PonRounds.reduce((sum, r) => sum + r.points.length, 0);
-    const totalPonVolume = last5PonRounds.reduce((sum, r) => {
-      const roundTotal = r.points.reduce((rSum: number, p: any) => rSum + Math.abs(p.value), 0);
-      return sum + roundTotal;
-    }, 0);
-    avgParticipants = (totalParticipants / last5PonRounds.length).toFixed(1);
-    avgTotalPon = (totalPonVolume / last5PonRounds.length).toFixed(1);
-  }
+    if (ponRounds.length === 0) {
+      return {
+        winLossData: [],
+        totalScoresData: [],
+        totalPonRounds: 0,
+        avgParticipantsLastMonth: "0.0",
+        participationData: [],
+        heatmapData: Array(7).fill(0),
+        maxWinStreak: { uid: null, streak: 0, user: null },
+        recent5Stats: { avgParticipants: "0.0", avgTotalPon: "0.0" },
+      };
+    }
 
-  return {
-    winLossData,
-    totalScoresData,
-    totalPonRounds,
-    avgParticipantsLastMonth,
-    participationData,
-    heatmapData,
-    maxWinStreak,
-    recent5Stats: { avgParticipants, avgTotalPon },
-  };
-}, [pointHistory, room, userMap]);
+    // 2. ユーザーごとの基本統計を計算 (勝利数/敗北数, 総得点, 出場数)
+    const userStats = room.members.map((member: { uid: string }) => {
+      const stats = {
+        uid: member.uid,
+        name: userMap[member.uid]?.display_name || "Unknown",
+        wins: 0,
+        losses: 0,
+        totalScore: 0,
+        appearances: 0,
+      };
+
+      ponRounds.forEach((round) => {
+        const participant = round.points.find((p: any) => p.uid === member.uid);
+        if (participant) {
+          stats.appearances++;
+          stats.totalScore += participant.value;
+          if (participant.value > 0) stats.wins++;
+          else if (participant.value < 0) stats.losses++;
+        }
+      });
+      return stats;
+    });
+
+    // グラフ用にデータを整形
+    const winLossData = userStats.map(({ name, wins, losses }) => ({
+      name,
+      wins,
+      losses,
+    }));
+    const totalScoresData = [...userStats].sort(
+      (a, b) => b.totalScore - a.totalScore
+    );
+    const participationData = [...userStats].sort(
+      (a, b) => b.appearances - a.appearances
+    );
+
+    // 3. 総試合回数 (PON)
+    const totalPonRounds = ponRounds.length;
+
+    // 4. 直近1ヶ月の平均参加人数
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+    const recentRoundsLastMonth = ponRounds.filter(
+      (r) => new Date(r.created_at) > oneMonthAgo
+    );
+    const avgParticipantsLastMonth =
+      recentRoundsLastMonth.length > 0
+        ? (
+            recentRoundsLastMonth.reduce(
+              (sum, round) => sum + round.points.length,
+              0
+            ) / recentRoundsLastMonth.length
+          ).toFixed(1)
+        : "0.0";
+
+    // 6. 曜日別の試合数ヒートマップ
+    const heatmapData = Array(7).fill(0);
+    ponRounds.forEach((r) => {
+      const day = new Date(r.created_at).getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+      heatmapData[day]++;
+    });
+
+    // 7. 連勝記録保持者
+    let maxWinStreak = {
+      uid: null as string | null,
+      streak: 0,
+      user: null as any,
+    };
+    room.members.forEach((member: { uid: string }) => {
+      let currentStreak = 0;
+      let memberMaxStreak = 0;
+      ponRounds.forEach((round) => {
+        const participant = round.points.find((p: any) => p.uid === member.uid);
+        if (participant) {
+          if (participant.value > 0) {
+            currentStreak++;
+          } else {
+            memberMaxStreak = Math.max(memberMaxStreak, currentStreak);
+            currentStreak = 0;
+          }
+        }
+      });
+      memberMaxStreak = Math.max(memberMaxStreak, currentStreak);
+
+      if (memberMaxStreak > maxWinStreak.streak) {
+        maxWinStreak = {
+          uid: member.uid,
+          streak: memberMaxStreak,
+          user: userMap[member.uid],
+        };
+      }
+    });
+
+    // 8. 直近5試合の統計
+    const last5PonRounds = [...ponRounds].reverse().slice(0, 5);
+    let avgParticipants = "0.0";
+    let avgTotalPon = "0.0";
+
+    if (last5PonRounds.length > 0) {
+      const totalParticipants = last5PonRounds.reduce(
+        (sum, r) => sum + r.points.length,
+        0
+      );
+      const totalPonVolume = last5PonRounds.reduce((sum, r) => {
+        const roundTotal = r.points.reduce(
+          (rSum: number, p: any) => rSum + Math.abs(p.value),
+          0
+        );
+        return sum + roundTotal;
+      }, 0);
+      avgParticipants = (totalParticipants / last5PonRounds.length).toFixed(1);
+      avgTotalPon = (totalPonVolume / last5PonRounds.length).toFixed(1);
+    }
+
+    return {
+      winLossData,
+      totalScoresData,
+      totalPonRounds,
+      avgParticipantsLastMonth,
+      participationData,
+      heatmapData,
+      maxWinStreak,
+      recent5Stats: { avgParticipants, avgTotalPon },
+    };
+  }, [pointHistory, room, userMap]);
 
   // Firebase ID token
   useEffect(() => {
@@ -1179,441 +1222,721 @@ const dashboardStats = useMemo(() => {
       )}
 
       {showHistoryModal && (
-<div className="z-10 fixed inset-0 w-screen h-screen bg-black/90 backdrop-blur-sm flex flex-col overflow-hidden">
-  <div className="w-full h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 shadow-2xl flex flex-col overflow-hidden border border-slate-700/50">
-    {/* Enhanced Modal Header */}
-<header className="flex-shrink-0 bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-md p-3 sm:p-4 border-b border-slate-600/40 flex items-center justify-between">
-  <div className="flex items-center gap-2 sm:gap-4">
-    <div className="flex items-center gap-1 sm:gap-2 bg-slate-700/60 backdrop-blur-sm p-1 rounded-lg sm:p-1.5 rounded-xl border border-slate-600/30">
-      <button
-        onClick={() => setHistoryModalTab("Dashboard")}
-        className={`relative flex items-center justify-center px-3 py-2 text-xs sm:px-4 sm:py-2.5 sm:text-sm font-semibold rounded-md sm:rounded-lg transition-all duration-300 ${
-          historyModalTab === "Dashboard"
-            ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 transform scale-105"
-            : "text-slate-300 hover:bg-slate-600/50 hover:text-white"
-        }`}
-        title="Dashboard" // Tooltip for mobile
-      >
-        <span className="material-symbols-outlined text-base sm:text-sm mr-0 sm:mr-2">
-          dashboard
-        </span>
-        <span className="hidden sm:inline">Dashboard</span>
-      </button>
-      <button
-        onClick={() => setHistoryModalTab("Log")}
-        className={`relative flex items-center justify-center px-3 py-2 text-xs sm:px-4 sm:py-2.5 sm:text-sm font-semibold rounded-md sm:rounded-lg transition-all duration-300 ${
-          historyModalTab === "Log"
-            ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 transform scale-105"
-            : "text-slate-300 hover:bg-slate-600/50 hover:text-white"
-        }`}
-        title="Transaction Log" // Tooltip for mobile
-      >
-        <span className="material-symbols-outlined text-base sm:text-sm mr-0 sm:mr-2">
-          history
-        </span>
-        <span className="hidden sm:inline">Transaction Log</span>
-      </button>
-    </div>
-  </div>
-<button
-  onClick={() => setShowHistoryModal(false)}
-  className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-slate-700/50 hover:bg-red-500/20 border border-slate-600/30 hover:border-red-500/50 transition-all duration-300 group"
->
-  <span className="material-symbols-outlined text-slate-300 group-hover:text-red-400 transition-colors text-xl sm:text-2xl">
-    close
-  </span>
-</button>
-</header>
-
- {/* Content Body */}
-      <main className="flex-1 overflow-y-auto scrollbar-hide overflow-x-hidden p-4 sm:p-6">
-{historyModalTab === "Dashboard" && (() => {
-  const stats = dashboardStats;
-
-  // グラフのカスタムツールチップ
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      // ツールチップに表示するユーザー情報を特定
-      const user = Object.values(userMap).find(u => u.display_name === label) || null;
-      
-      return (
-        <div className="rounded-xl border border-slate-600 bg-slate-800/80 p-3 shadow-lg backdrop-blur-md">
-          <div className="flex items-center gap-2 mb-2">
-            {user?.icon_url ? (
-              <img src={user.icon_url} alt={label} className="w-6 h-6 rounded-full" />
-            ) : (
-              <div className="w-6 h-6 grid place-items-center rounded-full bg-slate-700 text-xs font-bold">{label.charAt(0)}</div>
-            )}
-            <p className="font-bold text-white">{label}</p>
-          </div>
-          {payload.map((pld: any, i:number) => (
-            <div key={i} style={{ color: pld.fill }} className="flex items-center justify-between gap-4 text-sm">
-              <span>{pld.name}:</span>
-              <span className="font-semibold">{pld.value.toLocaleString()}</span>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
-
-  const AvatarYTicks = (props: any) => {
-    const { x, y, payload } = props;
-    const userName = payload.value;
-    const user = room.members.find((m:any) => userMap[m.uid]?.display_name === userName);
-    const userInfo = user ? userMap[user.uid] : null;
-
-    return (
-      <g transform={`translate(${x - 45},${y - 16})`}>
-        <foreignObject width="40" height="40">
-          {userInfo?.icon_url ? (
-            <img src={userInfo.icon_url} alt={userName} className="w-8 h-8 rounded-full object-cover"/>
-          ) : (
-            <div className="w-8 h-8 grid place-items-center rounded-full bg-slate-700 text-sm font-bold text-white">
-              {userName.charAt(0)}
-            </div>
-          )}
-        </foreignObject>
-      </g>
-    );
-  };
-
-  if (stats.totalPonRounds === 0) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <div className="text-center">
-          <span className="material-symbols-outlined text-6xl text-gray-600">sentiment_dissatisfied</span>
-          <p className="mt-4 text-xl font-semibold text-gray-400">No Data to Display</p>
-          <p className="text-sm text-gray-500">Play a PON round to see statistics.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-1 grid-rows-[auto] gap-4 sm:gap-6 lg:grid-cols-4 xl:grid-cols-5 animate-slide-in-up">
-      
-      {/* --- Hero Stat: Win Streak --- */}
-      {stats.maxWinStreak.uid && stats.maxWinStreak.user && (
-        <div className="group relative overflow-hidden rounded-xl border border-amber-400/30 bg-gradient-to-br from-gray-900 via-gray-900 to-amber-900/50 p-5 shadow-2xl shadow-amber-900/50 transition-all duration-300 lg:col-span-4 xl:col-span-3">
-          <div className="flex items-center gap-5">
-            <span className="material-symbols-outlined text-6xl text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)] transition-transform duration-300 group-hover:scale-110">local_fire_department</span>
-            <div className="w-full">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-300">Longest Win Streak</h3>
-              <div className="mt-2 flex flex-wrap items-center gap-x-4">
-                {stats.maxWinStreak.user.icon_url ? (
-                  <img src={stats.maxWinStreak.user.icon_url} alt={stats.maxWinStreak.user.display_name} className="h-12 w-12 rounded-full border-2 border-amber-400 object-cover"/>
-                ) : (
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 font-bold text-white">{stats.maxWinStreak.user.display_name.charAt(0)}</div>
-                )}
-                <p className="truncate text-2xl font-bold text-white">{stats.maxWinStreak.user.display_name}</p>
+        <div className="z-10 fixed inset-0 w-screen h-screen bg-black/90 backdrop-blur-sm flex flex-col overflow-hidden">
+          <div className="w-full h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 shadow-2xl flex flex-col overflow-hidden border border-slate-700/50">
+            {/* Enhanced Modal Header */}
+            <header className="flex-shrink-0 bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-md p-3 sm:p-4 border-b border-slate-600/40 flex items-center justify-between">
+              <div className="flex items-center gap-2 sm:gap-4">
+                <div className="flex items-center gap-1 sm:gap-2 bg-slate-700/60 backdrop-blur-sm p-1 rounded-lg sm:p-1.5 rounded-xl border border-slate-600/30">
+                  <button
+                    onClick={() => setHistoryModalTab("Dashboard")}
+                    className={`relative flex items-center justify-center px-3 py-2 text-xs sm:px-4 sm:py-2.5 sm:text-sm font-semibold rounded-md sm:rounded-lg transition-all duration-300 ${
+                      historyModalTab === "Dashboard"
+                        ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 transform scale-105"
+                        : "text-slate-300 hover:bg-slate-600/50 hover:text-white"
+                    }`}
+                    title="Dashboard" // Tooltip for mobile
+                  >
+                    <span className="material-symbols-outlined text-base sm:text-sm mr-0 sm:mr-2">
+                      dashboard
+                    </span>
+                    <span className="hidden sm:inline">Dashboard</span>
+                  </button>
+                  <button
+                    onClick={() => setHistoryModalTab("Log")}
+                    className={`relative flex items-center justify-center px-3 py-2 text-xs sm:px-4 sm:py-2.5 sm:text-sm font-semibold rounded-md sm:rounded-lg transition-all duration-300 ${
+                      historyModalTab === "Log"
+                        ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 transform scale-105"
+                        : "text-slate-300 hover:bg-slate-600/50 hover:text-white"
+                    }`}
+                    title="Transaction Log" // Tooltip for mobile
+                  >
+                    <span className="material-symbols-outlined text-base sm:text-sm mr-0 sm:mr-2">
+                      history
+                    </span>
+                    <span className="hidden sm:inline">Transaction Log</span>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="flex-shrink-0 text-right">
-                <p className="text-6xl font-black text-amber-400">{stats.maxWinStreak.streak}</p>
-                <p className="font-bold text-white">WINS</p>
-            </div>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-slate-700/50 hover:bg-red-500/20 border border-slate-600/30 hover:border-red-500/50 transition-all duration-300 group"
+              >
+                <span className="material-symbols-outlined text-slate-300 group-hover:text-red-400 transition-colors text-xl sm:text-2xl">
+                  close
+                </span>
+              </button>
+            </header>
+
+            {/* Content Body */}
+            <main className="flex-1 overflow-y-auto scrollbar-hide overflow-x-hidden p-4 sm:p-6">
+              {historyModalTab === "Dashboard" &&
+                (() => {
+                  const stats = dashboardStats;
+
+                  // グラフのカスタムツールチップ
+                  const CustomTooltip = ({ active, payload, label }: any) => {
+                    if (active && payload && payload.length) {
+                      // ツールチップに表示するユーザー情報を特定
+                      const user =
+                        Object.values(userMap).find(
+                          (u) => u.display_name === label
+                        ) || null;
+
+                      return (
+                        <div className="rounded-xl border border-slate-600 bg-slate-800/80 p-3 shadow-lg backdrop-blur-md">
+                          <div className="flex items-center gap-2 mb-2">
+                            {user?.icon_url ? (
+                              <img
+                                src={user.icon_url}
+                                alt={label}
+                                className="w-6 h-6 rounded-full"
+                              />
+                            ) : (
+                              <div className="w-6 h-6 grid place-items-center rounded-full bg-slate-700 text-xs font-bold">
+                                {label.charAt(0)}
+                              </div>
+                            )}
+                            <p className="font-bold text-white">{label}</p>
+                          </div>
+                          {payload.map((pld: any, i: number) => (
+                            <div
+                              key={i}
+                              style={{ color: pld.fill }}
+                              className="flex items-center justify-between gap-4 text-sm"
+                            >
+                              <span>{pld.name}:</span>
+                              <span className="font-semibold">
+                                {pld.value.toLocaleString()}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
+                    return null;
+                  };
+
+                  const AvatarYTicks = (props: any) => {
+                    const { x, y, payload } = props;
+                    const userName = payload.value;
+                    const user = room.members.find(
+                      (m: any) => userMap[m.uid]?.display_name === userName
+                    );
+                    const userInfo = user ? userMap[user.uid] : null;
+
+                    return (
+                      <g transform={`translate(${x - 45},${y - 16})`}>
+                        <foreignObject width="40" height="40">
+                          {userInfo?.icon_url ? (
+                            <img
+                              src={userInfo.icon_url}
+                              alt={userName}
+                              className="w-8 h-8 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 grid place-items-center rounded-full bg-slate-700 text-sm font-bold text-white">
+                              {userName.charAt(0)}
+                            </div>
+                          )}
+                        </foreignObject>
+                      </g>
+                    );
+                  };
+
+                  if (stats.totalPonRounds === 0) {
+                    return (
+                      <div className="flex h-full w-full items-center justify-center">
+                        <div className="text-center">
+                          <span className="material-symbols-outlined text-6xl text-gray-600">
+                            sentiment_dissatisfied
+                          </span>
+                          <p className="mt-4 text-xl font-semibold text-gray-400">
+                            No Data to Display
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            Play a PON round to see statistics.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 grid-rows-[auto] gap-4 sm:gap-6 lg:grid-cols-4 xl:grid-cols-5 animate-slide-in-up">
+                      {/* --- Hero Stat: Win Streak --- */}
+                      {stats.maxWinStreak.uid && stats.maxWinStreak.user && (
+                        <div className="group relative overflow-hidden rounded-xl border border-amber-400/30 bg-gradient-to-br from-gray-900 via-gray-900 to-amber-900/50 p-5 shadow-2xl shadow-amber-900/50 transition-all duration-300 lg:col-span-4 xl:col-span-3">
+                          <div className="flex items-center gap-5">
+                            <span className="material-symbols-outlined text-6xl text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)] transition-transform duration-300 group-hover:scale-110">
+                              local_fire_department
+                            </span>
+                            <div className="w-full">
+                              <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-300">
+                                Longest Win Streak
+                              </h3>
+                              <div className="mt-2 flex flex-wrap items-center gap-x-4">
+                                {stats.maxWinStreak.user.icon_url ? (
+                                  <img
+                                    src={stats.maxWinStreak.user.icon_url}
+                                    alt={stats.maxWinStreak.user.display_name}
+                                    className="h-12 w-12 rounded-full border-2 border-amber-400 object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 font-bold text-white">
+                                    {stats.maxWinStreak.user.display_name.charAt(
+                                      0
+                                    )}
+                                  </div>
+                                )}
+                                <p className="truncate text-2xl font-bold text-white">
+                                  {stats.maxWinStreak.user.display_name}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex-shrink-0 text-right">
+                              <p className="text-6xl font-black text-amber-400">
+                                {stats.maxWinStreak.streak}
+                              </p>
+                              <p className="font-bold text-white">WINS</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* --- Summary Cards --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-2">
+                        <h3 className="flex items-center gap-2 text-sm font-medium text-gray-400">
+                          <span className="material-symbols-outlined text-base">
+                            casino
+                          </span>{" "}
+                          Total PON Rounds
+                        </h3>
+                        <p className="font-mono text-5xl font-extrabold text-white mt-2">
+                          {stats.totalPonRounds}
+                        </p>
+                      </div>
+
+                      {/* --- Wins / Losses Chart --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-3 min-h-[350px]">
+                        <h3 className="text-base font-semibold text-white">
+                          Wins / Losses
+                        </h3>
+                        <ResponsiveContainer width="100%" height="90%">
+                          <BarChart
+                            data={stats.winLossData}
+                            layout="vertical"
+                            margin={{ top: 20, right: 20, left: 30, bottom: 5 }}
+                            barCategoryGap="35%"
+                          >
+                            <CartesianGrid
+                              stroke="#4b5563"
+                              strokeDasharray="3 3"
+                              horizontal={false}
+                            />
+                            <XAxis
+                              type="number"
+                              stroke="#9ca3af"
+                              tick={{ fill: "#9ca3af", fontSize: 12 }}
+                              allowDecimals={false}
+                            />
+                            {/* ★修正点1: Y軸にAvatarYTicksを適用 */}
+                            <YAxis
+                              type="category"
+                              dataKey="name"
+                              width={60}
+                              tickLine={false}
+                              axisLine={false}
+                              tick={<AvatarYTicks />}
+                            />
+                            <Tooltip
+                              content={<CustomTooltip />}
+                              cursor={{ fill: "rgba(129, 140, 248, 0.1)" }}
+                            />
+                            <Bar
+                              dataKey="wins"
+                              fill="#3b82f6"
+                              name="Wins"
+                              radius={[0, 8, 8, 0]}
+                            />
+                            <Bar
+                              dataKey="losses"
+                              fill="#ef4444"
+                              name="Losses"
+                              radius={[0, 8, 8, 0]}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* --- Total Score Chart --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 min-h-[350px]">
+                        <h3 className="text-base font-semibold text-white">
+                          Total Score Ranking
+                        </h3>
+                        <ResponsiveContainer width="100%" height="90%">
+                          <BarChart
+                            data={stats.totalScoresData}
+                            layout="vertical"
+                            margin={{ top: 20, right: 30, left: 30, bottom: 5 }}
+                            barCategoryGap="35%"
+                          >
+                            <CartesianGrid
+                              stroke="#4b5563"
+                              strokeDasharray="3 3"
+                              horizontal={false}
+                            />
+                            <XAxis
+                              type="number"
+                              stroke="#9ca3af"
+                              tick={{ fill: "#9ca3af", fontSize: 12 }}
+                            />
+                            {/* ★修正点1: Y軸にAvatarYTicksを適用 */}
+                            <YAxis
+                              type="category"
+                              dataKey="name"
+                              width={60}
+                              tickLine={false}
+                              axisLine={false}
+                              tick={<AvatarYTicks />}
+                            />
+                            <Tooltip
+                              content={<CustomTooltip />}
+                              cursor={{ fill: "rgba(129, 140, 248, 0.1)" }}
+                            />
+                            <Bar
+                              dataKey="totalScore"
+                              name="Score"
+                              radius={[0, 8, 8, 0]}
+                            >
+                              {stats.totalScoresData.map((entry, index) => (
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={
+                                    entry.totalScore >= 0
+                                      ? "#22c55e"
+                                      : "#f87171"
+                                  }
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* --- Participation Chart --- */}
+                      {/* --- Participation Chart --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-3 min-h-[300px]">
+                        <h3 className="text-base font-semibold text-white">
+                          Participation Ranking
+                        </h3>
+                        <ResponsiveContainer width="100%" height="90%">
+                          {/* ★修正点: X軸にアバターを表示するため、bottomマージンを確保 */}
+                          <BarChart
+                            data={stats.participationData}
+                            margin={{ top: 20, right: 30, left: 0, bottom: 20 }}
+                          >
+                            <CartesianGrid
+                              stroke="#4b5563"
+                              strokeDasharray="3 3"
+                              vertical={false}
+                            />
+
+                            {/* ★修正点: X軸にAvatarXTicksを適用 */}
+                            <XAxis
+                              dataKey="name"
+                              height={40}
+                              tickLine={false}
+                              axisLine={false}
+                              tick={(props) => {
+                                const { x, y, payload } = props;
+                                const userName = payload.value;
+                                const user = room.members.find(
+                                  (m: any) =>
+                                    userMap[m.uid]?.display_name === userName
+                                );
+                                const userInfo = user
+                                  ? userMap[user.uid]
+                                  : null;
+
+                                return (
+                                  <g
+                                    transform={`translate(${x - 16},${y + 10})`}
+                                  >
+                                    <foreignObject width="32" height="32">
+                                      {userInfo?.icon_url ? (
+                                        <img
+                                          src={userInfo.icon_url}
+                                          alt={userName}
+                                          className="w-8 h-8 rounded-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-8 h-8 grid place-items-center rounded-full bg-slate-700 text-sm font-bold text-white">
+                                          {userName.charAt(0)}
+                                        </div>
+                                      )}
+                                    </foreignObject>
+                                  </g>
+                                );
+                              }}
+                            />
+                            <YAxis
+                              stroke="#9ca3af"
+                              tick={{ fill: "#9ca3af", fontSize: 12 }}
+                              allowDecimals={false}
+                            />
+                            <Tooltip
+                              content={<CustomTooltip />}
+                              cursor={{ fill: "rgba(129, 140, 248, 0.1)" }}
+                            />
+                            <Bar
+                              dataKey="appearances"
+                              name="Rounds Played"
+                              fill="#a855f7"
+                              radius={[8, 8, 0, 0]}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* --- Activity Section --- */}
+                      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 min-h-[300px] flex flex-col justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-white">
+                            Weekly Activity
+                          </h3>
+                          {/* ★修正点2: ヒートマップに数値を表示 */}
+                          <div className="mt-4 grid grid-cols-7 gap-1.5 sm:gap-2">
+                            {["S", "M", "T", "W", "T", "F", "S"].map(
+                              (day, index) => {
+                                const count = stats.heatmapData[index];
+                                const maxCount = Math.max(
+                                  ...stats.heatmapData,
+                                  1
+                                );
+                                const opacity =
+                                  count > 0
+                                    ? 0.2 + (count / maxCount) * 0.8
+                                    : 0.1;
+                                return (
+                                  <div
+                                    key={index}
+                                    className="flex flex-col items-center gap-2"
+                                    title={`${count} rounds on ${day}`}
+                                  >
+                                    <div
+                                      className="relative grid h-20 w-full place-items-center rounded-md bg-indigo-500 transition-all duration-300"
+                                      style={{ opacity }}
+                                    >
+                                      {count > 0 && (
+                                        <span className="font-bold text-white text-lg drop-shadow-md">
+                                          {count}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-xs text-gray-500">
+                                      {day}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-6 space-y-3">
+                          <h3 className="text-base font-semibold text-white">
+                            Quick Stats (Last 5)
+                          </h3>
+                          <div className="flex items-center justify-between rounded-lg bg-gray-900/60 p-3">
+                            <p className="text-sm text-gray-300">Avg Players</p>
+                            <p className="font-mono text-lg font-bold text-white">
+                              {stats.recent5Stats.avgParticipants}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg bg-gray-900/60 p-3">
+                            <p className="text-sm text-gray-300">
+                              Avg Total PON
+                            </p>
+                            <p className="font-mono text-lg font-bold text-white">
+                              {stats.recent5Stats.avgTotalPon}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              {historyModalTab === "Log" && (
+                <>
+                  {/* Tab Navigation */}
+                  <div className="sticky top-0 z-10 bg-gray-800/4 max-w-3xl mx-auto   py-3 backdrop-blur-md sm:px-6 sm:py-4">
+                    <div className="flex space-x-2 sm:space-x-4">
+                      {["PON", "SATO"].map((type) => (
+                        <button
+                          key={type}
+                          onClick={() => setHistoryType(type as "PON" | "SATO")}
+                          className={`relative rounded-md px-3 py-2 text-sm font-bold transition-all duration-300 sm:px-4 ${
+                            historyType === type
+                              ? "bg-slate-700 text-white"
+                              : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                          }`}
+                        >
+                          {type}
+                          {historyType === type && (
+                            <span className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-fuchsia-500 rounded-full" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Log Content */}
+                  <div className="space-y-4 px-1 pt-4 sm:space-y-6 sm:px-2">
+                    {filteredHistory.length === 0 ? (
+                      <div className="flex flex-col items-center py-20 text-center">
+                        <div className="relative grid h-24 w-24 place-items-center">
+                          <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500/20 to-fuchsia-500/20 blur-2xl"></div>
+                          <span className="material-symbols-outlined text-6xl text-slate-500">
+                            receipt_long
+                          </span>
+                        </div>
+                        <p className="mt-4 text-lg font-semibold text-slate-300">
+                          No History Available
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          Game and transaction records will appear here.
+                        </p>
+                      </div>
+                    ) : (
+                      [...filteredHistory]
+                        .sort(
+                          (a, b) =>
+                            new Date(b.created_at).getTime() -
+                            new Date(a.created_at).getTime()
+                        )
+                        .map((rec, animIdx) => {
+                          // SATO Log Card
+                          if (historyType === "SATO") {
+                            const sender = rec.points.find(
+                              (p: any) => p.value > 0
+                            )!;
+                            const receiver = rec.points.find(
+                              (p: any) => p.value < 0
+                            )!;
+                            const amount = sender ? Math.abs(sender.value) : 0;
+                            if (!sender || !receiver) return null;
+
+                            return (
+                              <div
+                                key={rec.round_id}
+                                className="animate-slide-in-up"
+                                style={{ animationDelay: `${animIdx * 50}ms` }}
+                              >
+                                <div className="group mx-auto max-w-4xl rounded-2xl border border-slate-700/50 bg-gradient-to-br from-slate-800/80 to-slate-900/50 p-3 shadow-lg transition-all duration-300 hover:border-fuchsia-500/50 hover:shadow-2xl hover:shadow-fuchsia-500/10 sm:p-4">
+                                  {/* Card Header */}
+                                  <div className="mb-3 flex items-center justify-between px-1">
+                                    <div className="flex items-center gap-2">
+                                      <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-fuchsia-600/30 to-purple-600/30 border border-fuchsia-500/30">
+                                        <span className="material-symbols-outlined text-fuchsia-300 text-base">
+                                          payments
+                                        </span>
+                                      </div>
+                                      <span className="font-mono text-xs font-bold text-fuchsia-300 sm:text-sm">
+                                        {rec.round_id}
+                                      </span>
+                                    </div>
+                                    {/* ★修正点1: 秒単位まで表示 */}
+                                    <span className="text-xs text-slate-400">
+                                      {new Date(rec.created_at).toLocaleString(
+                                        "ja-JP",
+                                        {
+                                          year: "numeric",
+                                          month: "2-digit",
+                                          day: "2-digit",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                          second: "2-digit",
+                                          hour12: false,
+                                        }
+                                      )}
+                                    </span>
+                                  </div>
+
+                                  {/* SATO Body */}
+                                  <div className="flex w-full items-center gap-1 rounded-xl bg-slate-900/60 p-2 sm:gap-3 sm:p-3">
+                                    {/* Sender */}
+                                    <div className="flex flex-1 items-center gap-2 min-w-0">
+                                      {/* ★修正点2: flex-shrink-0 を追加 */}
+                                      {userMap[sender.uid]?.icon_url ? (
+                                        <img
+                                          src={userMap[sender.uid].icon_url}
+                                          alt=""
+                                          className="h-10 w-10 flex-shrink-0 rounded-full object-cover border-2 border-slate-600 sm:h-12 sm:w-12"
+                                        />
+                                      ) : (
+                                        <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-slate-700 font-bold text-white sm:h-12 sm:w-12 sm:text-lg">
+                                          {userMap[
+                                            sender.uid
+                                          ]?.display_name.charAt(0)}
+                                        </div>
+                                      )}
+                                      <p className="truncate text-sm font-medium text-slate-200">
+                                        {userMap[sender.uid]?.display_name}
+                                      </p>
+                                    </div>
+
+                                    {/* Arrow & Amount */}
+                                    <div className="flex flex-shrink-0 items-center gap-1 rounded-full bg-slate-800/70 p-1 sm:gap-2">
+                                      <span className="material-symbols-outlined text-lg text-fuchsia-400 sm:text-xl">
+                                        arrow_forward
+                                      </span>
+                                      <div className="rounded-full bg-amber-400/10 px-2 py-1 border border-amber-400/20 sm:px-3">
+                                        <span className="text-sm font-bold text-amber-300">
+                                          {amount.toLocaleString()}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Receiver */}
+                                    <div className="flex flex-1 items-center justify-end gap-2 min-w-0 text-right">
+                                      <p className="truncate text-sm font-medium text-slate-200">
+                                        {userMap[receiver.uid]?.display_name}
+                                      </p>
+                                      {/* ★修正点2: flex-shrink-0 を追加 */}
+                                      {userMap[receiver.uid]?.icon_url ? (
+                                        <img
+                                          src={userMap[receiver.uid].icon_url}
+                                          alt=""
+                                          className="h-10 w-10 flex-shrink-0 rounded-full object-cover border-2 border-slate-600 sm:h-12 sm:w-12"
+                                        />
+                                      ) : (
+                                        <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-slate-700 font-bold text-white sm:h-12 sm:w-12 sm:text-lg">
+                                          {userMap[
+                                            receiver.uid
+                                          ]?.display_name.charAt(0)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // PON Log Card
+                          return (
+                            <div
+                              key={rec.round_id}
+                              className="animate-slide-in-up"
+                              style={{ animationDelay: `${animIdx * 50}ms` }}
+                            >
+                              <div className="mx-auto max-w-3xl rounded-2xl border border-slate-700/50 bg-slate-800/50 p-4 shadow-lg transition-all duration-300 hover:border-indigo-500/50 hover:shadow-indigo-500/10 sm:p-5">
+                                {/* Card Header */}
+                                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-indigo-600/30 to-blue-600/30 border border-indigo-500/30">
+                                      <span className="material-symbols-outlined text-indigo-300 text-base">
+                                        leaderboard
+                                      </span>
+                                    </div>
+                                    <span className="font-mono text-xs font-bold text-indigo-300 sm:text-sm">
+                                      {rec.round_id}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1 rounded-full bg-slate-700/80 px-2 py-1 text-xs text-slate-300">
+                                      <span className="material-symbols-outlined text-sm">
+                                        groups
+                                      </span>
+                                      <span>{rec.points.length}</span>
+                                    </div>
+                                    <span className="text-xs text-slate-400">
+                                      {new Date(rec.created_at).toLocaleString(
+                                        "ja-JP"
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+                                {/* PON Body */}
+                                <div className="space-y-2 rounded-xl bg-slate-900/50 p-2 sm:p-4">
+                                  {rec.points
+                                    .sort((a: any, b: any) => b.value - a.value)
+                                    .map((p: any, idx: number) => (
+                                      <div
+                                        key={p.uid}
+                                        className={`flex items-center justify-between rounded-lg p-2 transition-all duration-300 sm:p-3 ${
+                                          idx === 0
+                                            ? "bg-amber-400/10"
+                                            : "bg-slate-800/50 hover:bg-slate-700/50"
+                                        }`}
+                                      >
+                                        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                                          <div className="flex-shrink-0 text-center sm:w-6">
+                                            {idx < 3 ? (
+                                              <span
+                                                className={`material-symbols-outlined text-lg ${idx === 0 ? "text-amber-400" : idx === 1 ? "text-slate-300" : "text-orange-400"}`}
+                                              >
+                                                {idx === 0
+                                                  ? "emoji_events"
+                                                  : idx === 1
+                                                    ? "military_tech"
+                                                    : "workspace_premium"}
+                                              </span>
+                                            ) : (
+                                              <span className="text-sm font-bold text-slate-500">
+                                                {idx + 1}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {userMap[p.uid]?.icon_url ? (
+                                            <img
+                                              src={userMap[p.uid].icon_url}
+                                              alt=""
+                                              className="h-8 w-8 rounded-full object-cover sm:h-9 sm:w-9"
+                                            />
+                                          ) : (
+                                            <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-full bg-slate-700 text-sm font-bold text-white sm:h-9 sm:w-9">
+                                              {userMap[
+                                                p.uid
+                                              ]?.display_name.charAt(0)}
+                                            </div>
+                                          )}
+                                          <span className="truncate text-sm font-medium text-slate-200">
+                                            {userMap[p.uid]?.display_name}
+                                          </span>
+                                        </div>
+                                        <div
+                                          className={`flex-shrink-0 rounded-md px-2 py-1 text-sm font-bold tabular-nums sm:px-3 ${
+                                            p.value > 0
+                                              ? "bg-emerald-500/10 text-emerald-400"
+                                              : p.value < 0
+                                                ? "bg-rose-500/10 text-rose-400"
+                                                : "bg-slate-600/20 text-slate-400"
+                                          }`}
+                                        >
+                                          {p.value > 0 ? "+" : ""}
+                                          {p.value.toLocaleString()}
+                                          <span className="ml-1 text-xs opacity-70">
+                                            pt
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </>
+              )}
+            </main>
           </div>
         </div>
       )}
 
-      {/* --- Summary Cards --- */}
-      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-2">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-gray-400"><span className="material-symbols-outlined text-base">casino</span> Total PON Rounds</h3>
-        <p className="font-mono text-5xl font-extrabold text-white mt-2">{stats.totalPonRounds}</p>
-      </div>
-
-      {/* --- Wins / Losses Chart --- */}
-      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-3 min-h-[350px]">
-        <h3 className="text-base font-semibold text-white">Wins / Losses</h3>
-        <ResponsiveContainer width="100%" height="90%">
-          <BarChart data={stats.winLossData} layout="vertical" margin={{ top: 20, right: 20, left: 30, bottom: 5 }} barCategoryGap="35%">
-            <CartesianGrid stroke="#4b5563" strokeDasharray="3 3" horizontal={false} />
-            <XAxis type="number" stroke="#9ca3af" tick={{ fill: '#9ca3af', fontSize: 12 }} allowDecimals={false} />
-            {/* ★修正点1: Y軸にAvatarYTicksを適用 */}
-            <YAxis type="category" dataKey="name" width={60} tickLine={false} axisLine={false} tick={<AvatarYTicks />} />
-            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(129, 140, 248, 0.1)' }} />
-            <Bar dataKey="wins" fill="#3b82f6" name="Wins" radius={[0, 8, 8, 0]} />
-            <Bar dataKey="losses" fill="#ef4444" name="Losses" radius={[0, 8, 8, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* --- Total Score Chart --- */}
-      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 min-h-[350px]">
-        <h3 className="text-base font-semibold text-white">Total Score Ranking</h3>
-        <ResponsiveContainer width="100%" height="90%">
-          <BarChart data={stats.totalScoresData} layout="vertical" margin={{ top: 20, right: 30, left: 30, bottom: 5 }} barCategoryGap="35%">
-            <CartesianGrid stroke="#4b5563" strokeDasharray="3 3" horizontal={false} />
-            <XAxis type="number" stroke="#9ca3af" tick={{ fill: '#9ca3af', fontSize: 12 }} />
-            {/* ★修正点1: Y軸にAvatarYTicksを適用 */}
-            <YAxis type="category" dataKey="name" width={60} tickLine={false} axisLine={false} tick={<AvatarYTicks />} />
-            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(129, 140, 248, 0.1)' }} />
-            <Bar dataKey="totalScore" name="Score" radius={[0, 8, 8, 0]}>
-              {stats.totalScoresData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.totalScore >= 0 ? '#22c55e' : '#f87171'} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* --- Participation Chart --- */}
-{/* --- Participation Chart --- */}
-<div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 xl:col-span-3 min-h-[300px]">
-  <h3 className="text-base font-semibold text-white">Participation Ranking</h3>
-  <ResponsiveContainer width="100%" height="90%">
-    {/* ★修正点: X軸にアバターを表示するため、bottomマージンを確保 */}
-    <BarChart data={stats.participationData} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
-      <CartesianGrid stroke="#4b5563" strokeDasharray="3 3" vertical={false} />
-      
-      {/* ★修正点: X軸にAvatarXTicksを適用 */}
-      <XAxis 
-        dataKey="name" 
-        height={40} 
-        tickLine={false} 
-        axisLine={false} 
-        tick={(props) => {
-          const { x, y, payload } = props;
-          const userName = payload.value;
-          const user = room.members.find((m:any) => userMap[m.uid]?.display_name === userName);
-          const userInfo = user ? userMap[user.uid] : null;
-
-          return (
-            <g transform={`translate(${x - 16},${y + 10})`}>
-              <foreignObject width="32" height="32">
-                {userInfo?.icon_url ? (
-                  <img src={userInfo.icon_url} alt={userName} className="w-8 h-8 rounded-full object-cover"/>
-                ) : (
-                  <div className="w-8 h-8 grid place-items-center rounded-full bg-slate-700 text-sm font-bold text-white">
-                    {userName.charAt(0)}
-                  </div>
-                )}
-              </foreignObject>
-            </g>
-          )
-        }} 
-      />
-      <YAxis stroke="#9ca3af" tick={{ fill: '#9ca3af', fontSize: 12 }} allowDecimals={false} />
-      <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(129, 140, 248, 0.1)' }} />
-      <Bar dataKey="appearances" name="Rounds Played" fill="#a855f7" radius={[8, 8, 0, 0]} />
-    </BarChart>
-  </ResponsiveContainer>
-</div>
-
-      {/* --- Activity Section --- */}
-      <div className="group relative rounded-xl border border-gray-700/80 bg-gray-800/50 p-5 shadow-lg transition-all hover:border-indigo-400/50 hover:bg-gray-800/80 lg:col-span-2 min-h-[300px] flex flex-col justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-white">Weekly Activity</h3>
-          {/* ★修正点2: ヒートマップに数値を表示 */}
-          <div className="mt-4 grid grid-cols-7 gap-1.5 sm:gap-2">
-            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => {
-              const count = stats.heatmapData[index];
-              const maxCount = Math.max(...stats.heatmapData, 1);
-              const opacity = count > 0 ? 0.2 + (count / maxCount) * 0.8 : 0.1;
-              return (
-                <div key={index} className="flex flex-col items-center gap-2" title={`${count} rounds on ${day}`}>
-                  <div className="relative grid h-20 w-full place-items-center rounded-md bg-indigo-500 transition-all duration-300" style={{ opacity }}>
-                    {count > 0 && (
-                      <span className="font-bold text-white text-lg drop-shadow-md">{count}</span>
-                    )}
-                  </div>
-                  <span className="text-xs text-gray-500">{day}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <div className="mt-6 space-y-3">
-            <h3 className="text-base font-semibold text-white">Quick Stats (Last 5)</h3>
-            <div className="flex items-center justify-between rounded-lg bg-gray-900/60 p-3">
-              <p className="text-sm text-gray-300">Avg Players</p>
-              <p className="font-mono text-lg font-bold text-white">{stats.recent5Stats.avgParticipants}</p>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-gray-900/60 p-3">
-              <p className="text-sm text-gray-300">Avg Total PON</p>
-              <p className="font-mono text-lg font-bold text-white">{stats.recent5Stats.avgTotalPon}</p>
-            </div>
-        </div>
-      </div>
-    </div>
-  )
-})()}{historyModalTab === "Log" && (
-  <>
-    {/* Tab Navigation */}
-    <div className="sticky top-0 z-10 bg-gray-800/4 max-w-3xl mx-auto   py-3 backdrop-blur-md sm:px-6 sm:py-4">
-      <div className="flex space-x-2 sm:space-x-4">
-        {["PON", "SATO"].map((type) => (
-          <button
-            key={type}
-            onClick={() => setHistoryType(type as "PON" | "SATO")}
-            className={`relative rounded-md px-3 py-2 text-sm font-bold transition-all duration-300 sm:px-4 ${
-              historyType === type
-                ? "bg-slate-700 text-white"
-                : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-            }`}
-          >
-            {type}
-            {historyType === type && (
-              <span className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-fuchsia-500 rounded-full" />
-            )}
-          </button>
-        ))}
-      </div>
-    </div>
-    
-{/* Log Content */}
-<div className="space-y-4 px-1 pt-4 sm:space-y-6 sm:px-2">
-  {filteredHistory.length === 0 ? (
-    <div className="flex flex-col items-center py-20 text-center">
-      <div className="relative grid h-24 w-24 place-items-center">
-        <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500/20 to-fuchsia-500/20 blur-2xl"></div>
-        <span className="material-symbols-outlined text-6xl text-slate-500">receipt_long</span>
-      </div>
-      <p className="mt-4 text-lg font-semibold text-slate-300">No History Available</p>
-      <p className="text-sm text-slate-500">Game and transaction records will appear here.</p>
-    </div>
-  ) : (
-    [...filteredHistory]
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .map((rec, animIdx) => {
-        // SATO Log Card
-        if (historyType === "SATO") {
-          const sender = rec.points.find((p: any) => p.value > 0)!;
-          const receiver = rec.points.find((p: any) => p.value < 0)!;
-          const amount = sender ? Math.abs(sender.value) : 0;
-          if (!sender || !receiver) return null;
-          
-          return (
-            <div key={rec.round_id} className="animate-slide-in-up" style={{ animationDelay: `${animIdx * 50}ms` }}>
-              <div className="group mx-auto max-w-4xl rounded-2xl border border-slate-700/50 bg-gradient-to-br from-slate-800/80 to-slate-900/50 p-3 shadow-lg transition-all duration-300 hover:border-fuchsia-500/50 hover:shadow-2xl hover:shadow-fuchsia-500/10 sm:p-4">
-                {/* Card Header */}
-                <div className="mb-3 flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-fuchsia-600/30 to-purple-600/30 border border-fuchsia-500/30">
-                      <span className="material-symbols-outlined text-fuchsia-300 text-base">payments</span>
-                    </div>
-                    <span className="font-mono text-xs font-bold text-fuchsia-300 sm:text-sm">{rec.round_id}</span>
-                  </div>
-                  {/* ★修正点1: 秒単位まで表示 */}
-                  <span className="text-xs text-slate-400">
-                    {new Date(rec.created_at).toLocaleString("ja-JP", {
-                      year: 'numeric', month: '2-digit', day: '2-digit',
-                      hour: '2-digit', minute: '2-digit', second: '2-digit',
-                      hour12: false
-                    })}
-                  </span>
-                </div>
-
-                {/* SATO Body */}
-                <div className="flex w-full items-center gap-1 rounded-xl bg-slate-900/60 p-2 sm:gap-3 sm:p-3">
-                  {/* Sender */}
-                  <div className="flex flex-1 items-center gap-2 min-w-0">
-                    {/* ★修正点2: flex-shrink-0 を追加 */}
-                    {userMap[sender.uid]?.icon_url ? (
-                      <img src={userMap[sender.uid].icon_url} alt="" className="h-10 w-10 flex-shrink-0 rounded-full object-cover border-2 border-slate-600 sm:h-12 sm:w-12"/>
-                    ) : (
-                      <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-slate-700 font-bold text-white sm:h-12 sm:w-12 sm:text-lg">{userMap[sender.uid]?.display_name.charAt(0)}</div>
-                    )}
-                    <p className="truncate text-sm font-medium text-slate-200">{userMap[sender.uid]?.display_name}</p>
-                  </div>
-                  
-                  {/* Arrow & Amount */}
-                  <div className="flex flex-shrink-0 items-center gap-1 rounded-full bg-slate-800/70 p-1 sm:gap-2">
-                    <span className="material-symbols-outlined text-lg text-fuchsia-400 sm:text-xl">arrow_forward</span>
-                    <div className="rounded-full bg-amber-400/10 px-2 py-1 border border-amber-400/20 sm:px-3">
-                      <span className="text-sm font-bold text-amber-300">{amount.toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  {/* Receiver */}
-                  <div className="flex flex-1 items-center justify-end gap-2 min-w-0 text-right">
-                    <p className="truncate text-sm font-medium text-slate-200">{userMap[receiver.uid]?.display_name}</p>
-                    {/* ★修正点2: flex-shrink-0 を追加 */}
-                    {userMap[receiver.uid]?.icon_url ? (
-                      <img src={userMap[receiver.uid].icon_url} alt="" className="h-10 w-10 flex-shrink-0 rounded-full object-cover border-2 border-slate-600 sm:h-12 sm:w-12"/>
-                    ) : (
-                      <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-slate-700 font-bold text-white sm:h-12 sm:w-12 sm:text-lg">{userMap[receiver.uid]?.display_name.charAt(0)}</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        }
-        
-        // PON Log Card
-        return (
-          <div key={rec.round_id} className="animate-slide-in-up" style={{ animationDelay: `${animIdx * 50}ms` }}>
-            <div className="mx-auto max-w-3xl rounded-2xl border border-slate-700/50 bg-slate-800/50 p-4 shadow-lg transition-all duration-300 hover:border-indigo-500/50 hover:shadow-indigo-500/10 sm:p-5">
-              {/* Card Header */}
-              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-indigo-600/30 to-blue-600/30 border border-indigo-500/30">
-                    <span className="material-symbols-outlined text-indigo-300 text-base">leaderboard</span>
-                  </div>
-                  <span className="font-mono text-xs font-bold text-indigo-300 sm:text-sm">{rec.round_id}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1 rounded-full bg-slate-700/80 px-2 py-1 text-xs text-slate-300">
-                    <span className="material-symbols-outlined text-sm">groups</span>
-                    <span>{rec.points.length}</span>
-                  </div>
-                  <span className="text-xs text-slate-400">{new Date(rec.created_at).toLocaleString("ja-JP")}</span>
-                </div>
-              </div>
-              {/* PON Body */}
-              <div className="space-y-2 rounded-xl bg-slate-900/50 p-2 sm:p-4">
-                {rec.points
-                  .sort((a: any, b: any) => b.value - a.value)
-                  .map((p: any, idx: number) => (
-                    <div
-                      key={p.uid}
-                      className={`flex items-center justify-between rounded-lg p-2 transition-all duration-300 sm:p-3 ${
-                        idx === 0 ? "bg-amber-400/10" : "bg-slate-800/50 hover:bg-slate-700/50"
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-                        <div className="flex-shrink-0 text-center sm:w-6">
-                          {idx < 3 ? (
-                            <span className={`material-symbols-outlined text-lg ${ idx === 0 ? "text-amber-400" : idx === 1 ? "text-slate-300" : "text-orange-400" }`}>
-                              {idx === 0 ? "emoji_events" : idx === 1 ? "military_tech" : "workspace_premium"}
-                            </span>
-                          ) : (
-                            <span className="text-sm font-bold text-slate-500">{idx + 1}</span>
-                          )}
-                        </div>
-                        {userMap[p.uid]?.icon_url ? (
-                          <img src={userMap[p.uid].icon_url} alt="" className="h-8 w-8 rounded-full object-cover sm:h-9 sm:w-9"/>
-                        ) : (
-                          <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-full bg-slate-700 text-sm font-bold text-white sm:h-9 sm:w-9">{userMap[p.uid]?.display_name.charAt(0)}</div>
-                        )}
-                        <span className="truncate text-sm font-medium text-slate-200">{userMap[p.uid]?.display_name}</span>
-                      </div>
-                      <div className={`flex-shrink-0 rounded-md px-2 py-1 text-sm font-bold tabular-nums sm:px-3 ${
-                        p.value > 0 ? "bg-emerald-500/10 text-emerald-400" : p.value < 0 ? "bg-rose-500/10 text-rose-400" : "bg-slate-600/20 text-slate-400"
-                      }`}>
-                        {p.value > 0 ? "+" : ""}{p.value.toLocaleString()}
-                        <span className="ml-1 text-xs opacity-70">pt</span>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          </div>
-        );
-      })
-  )}
-</div>
-  </>
-)}
-    </main>
-  </div>
-</div>
-)}
-
-{/* 精算モーダル */}
+      {/* 精算モーダル */}
       {showSettleModal && (
         <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-purple-900/30 backdrop-blur-xl flex items-center justify-center z-50 animate-fade-in">
           <div className="w-full max-w-md bg-gradient-to-br from-gray-900/90 via-gray-800/80 to-gray-900/90 backdrop-blur-2xl rounded-3xl p-8 border border-gray-600/30 shadow-2xl transform animate-scale-up relative overflow-hidden">
