@@ -1,4 +1,4 @@
-services:
+s{:vices:
   satopon_backend:
     build: ./backend/
     container_name: satopon_backend
@@ -20,7 +20,7 @@ services:
     container_name: satopon_mongo
     ports:
       - "27017:27017"
-    restart: unless-stopped
+        #restart: unless-stopped
     volumes:
       - satopon_mongo_data:/data/db
 
@@ -29,7 +29,7 @@ services:
     container_name: satopon_redis
     ports:
       - "6379:6379"
-    restart: unless-stopped
+        #restart: unless-stopped
     volumes:
       - satopon_redis_data:/data
 

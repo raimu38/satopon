@@ -123,7 +123,6 @@ export default function AuthPage() {
     // Check if user is already signed in with Firebase
     if (auth.currentUser) {
       setIsAnimating(true);
-      console.log("anima");
       animationTimer.current = setTimeout(() => {
         router.replace("/c420");
       }, 3500);
