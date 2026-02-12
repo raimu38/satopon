@@ -1,0 +1,19 @@
+services:
+  proxy:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile.prod
+    image: raimu38/satopon-proxy:latest
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    image: raimu38/satopon-backend:latest
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    image: raimu38/satopon-frontend:latest
+

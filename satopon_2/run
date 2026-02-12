@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -e
+
+# =====================================
+# Satopon Deployment Utility Script
+# ./run p build     → 本番ビルド
+# ./run p push      → 本番Docker Hubへpush
+# ./run d build     → 開発ビルド
+# ./run d up        → 開発用コンテナ起動
+# ./run d down      → 開発用コンテナ停止＆削除
+# ./run d restart   → 開発用コンテナ再起動
+# =====================================
+
+FRONTEND_IMG="raimu38/satopon-frontend:latest"
+BACKEND_IMG="raimu38/satopon-backend:latest"
+PROXY_IMG="raimu38/satopon-proxy:latest"
+
+case "$1" in
+  p)
+    case "$2" in
+      build)
+        echo "[BUILD] Building production images..."
+        docker compose -f docker-compose.prod.yml build
+        echo "[DONE] Production build complete."
+        ;;
+      push)
+        echo "[PUSH] Pushing all production images to Docker Hub..."
+        docker push "$FRONTEND_IMG"
+        docker push "$BACKEND_IMG"
+        docker push "$PROXY_IMG"
+        echo "[DONE] All production images pushed."
+        ;;
+      *)
+        echo "Usage: ./run p {build|push}"
+        ;;
+    esac
+    ;;
+
+  d)
+    case "$2" in
+      build)
+        echo "[BUILD] Building development images..."
+        docker compose -f docker-compose.yml build
+        echo "[DONE] Development build complete."
+        ;;
+      up)
+        echo "[UP] Starting development containers..."
+        docker compose -f docker-compose.yml up -d
+        echo "[DONE] Development containers are up."
+        ;;
+      down)
+        echo "[DOWN] Stopping and removing development containers..."
+        docker compose -f docker-compose.yml down
+        echo "[DONE] Development containers stopped and removed."
+        ;;
+      restart)
+        echo "[RESTART] Restarting development environment..."
+        docker compose -f docker-compose.yml down
+        docker compose -f docker-compose.yml up -d
+        echo "[DONE] Development containers restarted."
+        ;;
+      *)
+        echo "Usage: ./run d {build|up|down|restart}"
+        ;;
+    esac
+    ;;
+
+  *)
+    echo "Usage:"
+    echo "  ./run p build       # 本番ビルド"
+    echo "  ./run p push        # Docker Hubへpush"
+    echo "  ./run d build       # 開発ビルド"
+    echo "  ./run d up          # 開発コンテナ起動"
+    echo "  ./run d down        # 開発コンテナ停止・削除"
+    echo "  ./run d restart     # 開発環境を再起動"
+    ;;
+esac
+

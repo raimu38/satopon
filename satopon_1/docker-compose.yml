@@ -1,4 +1,4 @@
-s{:vices:
+services:
   satopon_backend:
     build: ./backend/
     container_name: satopon_backend

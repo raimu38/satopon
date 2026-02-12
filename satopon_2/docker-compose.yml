@@ -1,0 +1,23 @@
+services:
+  proxy:
+    image: satopon/proxy:latest
+    build: ./proxy
+    ports:
+      - "80:80"
+    depends_on:
+      - frontend
+      - backend
+
+  backend:
+    image: satopon/backend:latest
+    build: ./backend
+    container_name: satopon_backend
+    ports:
+      - "8000:8000"
+
+
+  frontend:
+    image: satopon/frontend:latest
+    build: ./frontend
+    container_name: satopon_frontend
+    ports: "3000:3000"
